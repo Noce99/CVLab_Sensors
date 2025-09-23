@@ -26,3 +26,58 @@ source install/setup.bash
 ```
 ros2 launch hesai_ros_driver start.py
 ```
+
+## Livox Lidars
+### Build
+#### SDK Installation
+From `/home/cvlab/CVLab_Sensors`
+```
+git clone https://github.com/Livox-SDK/Livox-SDK2.git
+```
+```
+cd ./Livox-SDK2/
+```
+```
+mkdir build
+```
+```
+cd build
+```
+```
+cmake .. && make -j
+```
+```
+sudo make install
+```
+#### Ros 2 Node Installation
+From `/home/cvlab/CVLab_Sensors`
+```
+git clone https://github.com/Livox-SDK/livox_ros_driver2.git
+```
+```
+cd livox_ros_driver2
+```
+```
+cp -f package_ROS2.xml package.xml
+```
+```
+cp -rf launch_ROS2/ launch/
+```
+Set receiving ip and lidar ip in:
+```
+/home/cvlab/ros_ws/src/livox_ros_driver2/config/MID360_config.json
+/home/cvlab/ros_ws/src/livox_ros_driver2/config/HAP_config.json
+```
+From `/home/cvlab/ros_ws`
+```
+colcon build --symlink-install --packages-select livox_ros_driver2
+```
+### Run
+MID360:
+```
+ros2 launch livox_ros_driver2 rviz_MID360_launch.py
+```
+HAP:
+```
+ros2 launch livox_ros_driver2 rviz_HAP_launch.py
+```
