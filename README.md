@@ -7,7 +7,7 @@ All the ros2 nodes to receive data from all the CVLab sensors.
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | 192.168.1.151 |
 |   |   | []() |  |
 
-## Vuiew Data
+## View Data
 From your computer:
 ```
 ros2 launch foxglove_bridge foxglove_bridge_launch.xml
