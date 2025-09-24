@@ -1,11 +1,11 @@
 # CVLab Sensors
 All the ros2 nodes to receive data from all the CVLab sensors.
-| Sensor Type | Sensor Name | Ros2 Node | IP |
-| --------    | -------     | -------   | ------- |
-| Lidar  | PandarSX  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | 192.168.1.201 |
-| Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | |
-| Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | 192.168.1.151 |
-|   |   | []() |  |
+| Sensor Type | Sensor Name | Ros2 Node | Connection | IP | Instructions |
+| --------    | -------     | -------   | ------- | ------- | ------- |
+| Lidar  | PandarSX  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.201 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
+| Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | | |
+| Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 | |
+| Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | |
 
 ## View Data
 From your computer:
@@ -15,11 +15,13 @@ ros2 launch foxglove_bridge foxglove_bridge_launch.xml
 
 ## HesaiLidar_ROS_2.0
 ### Build
+<a name="hesai_lidar_build"></a>
 From `/home/cvlab/ros_ws`
 ```
 colcon build --symlink-install --packages-select hesai_ros_driver
 ```
 ### Run
+<a name="hesai_lidar_run"></a>
 ```
 source install/setup.bash
 ```
