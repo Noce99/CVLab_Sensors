@@ -6,7 +6,7 @@ All the ros2 nodes to receive data from all the CVLab sensors.
 | Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.100 | [build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | |
-| Depth Camera  | RealSense | [realsense-ros](https://github.com/IntelRealSense/realsense-ros) | USB | | |
+| Depth Camera  | RealSense | [realsense-ros](https://github.com/IntelRealSense/realsense-ros) | USB | | [build](#realsense_build) - [run](#realsense_run) |
 
 
 ## View Data
@@ -86,4 +86,25 @@ ros2 launch livox_ros_driver2 rviz_MID360_launch.py
 HAP:
 ```
 ros2 launch livox_ros_driver2 rviz_HAP_launch.py
+```
+## RealSensor
+<a name="realsense_build"></a>
+### Build
+#### SDK Installation
+```
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key F6E65AC044F831AC80A06380C8B3A55A6F3EFCDE || sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-key F6E65AC044F831AC80A06380C8B3A55A6F3EFCDE
+sudo add-apt-repository "deb https://librealsense.intel.com/Debian/apt-repo $(lsb_release -cs) main" -u
+sudo apt-get install librealsense2-utils
+sudo apt-get install librealsense2-dev
+```
+You can try the correct installation with: `realsense-viewer`
+#### Ros 2 Node Installation
+From `/home/cvlab/CVLab_Sensors`
+```
+sudo apt install ros-foxy-realsense2-*
+```
+<a name="realsense_run"></a>
+### Run
+```
+ros2 launch realsense2_camera rs_launch.py
 ```
