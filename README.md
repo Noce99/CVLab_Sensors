@@ -6,6 +6,8 @@ All the ros2 nodes to receive data from all the CVLab sensors.
 | Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | |
+| Depth Camera  | RealSense | [official](https://github.com/IntelRealSense/realsense-ros) | USB | | |
+
 
 ## View Data
 From your computer:
