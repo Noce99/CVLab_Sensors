@@ -8,7 +8,15 @@ All the ros2 nodes to receive data from all the CVLab sensors.
 | Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | |
 | Depth Camera  | RealSense | [realsense-ros](https://github.com/IntelRealSense/realsense-ros) | USB | | [build](#realsense_build) - [run](#realsense_run) |
 
-
+## Start VNC
+From the orin:
+```
+sudo systemctl restart vnc.service
+```
+From your computer with a VNC client connect to:
+```
+192.168.1.84:5900
+```
 ## View Data
 From your computer:
 ```
