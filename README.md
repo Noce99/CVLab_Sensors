@@ -5,7 +5,7 @@ All the ros2 nodes to receive data from all the CVLab sensors.
 | Lidar  | PandarSX  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.201 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
 | Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.100 | [build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
-| Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | |
+| Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | [build](#eventcamera_build) - [run](eventcamera_run) |
 | Depth Camera  | RealSense | [realsense-ros](https://github.com/IntelRealSense/realsense-ros) | USB | | [build](#realsense_build) - [run](#realsense_run) |
 
 ## Start VNC
@@ -116,3 +116,12 @@ sudo apt install ros-foxy-realsense2-*
 ```
 ros2 launch realsense2_camera rs_launch.py
 ```
+## Event Camera
+<a name="eventcamera_build"></a>
+### Build
+From `/home/cvlab/ros_ws`
+```
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo --packages-select event_camera_codecs event_camera_renderer metavision_driver event_camera_msgs
+```
+<a name="eventcamera_run"></a>
+### Run
