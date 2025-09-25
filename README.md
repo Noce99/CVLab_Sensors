@@ -125,3 +125,10 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo --
 ```
 <a name="eventcamera_run"></a>
 ### Run
+```
+ros2 launch metavision_driver driver_node.launch.py
+```
+To visualise:
+```
+ros2 launch event_camera_renderer renderer.launch.py
+```
