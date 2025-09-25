@@ -132,3 +132,5 @@ To visualise:
 ```
 ros2 launch event_camera_renderer renderer.launch.py
 ```
+Lunch `rqt`
+Plugins > Visualization > Image View
