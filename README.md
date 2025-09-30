@@ -150,5 +150,5 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug -DPYLON_ROO
 <a name="basler_run"></a>
 ### Run
 ```
-
+ros2 launch pylon_ros2_camera_wrapper pylon_ros2_camera.launch.py
 ```
