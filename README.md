@@ -1,5 +1,10 @@
 # CVLab Sensors
-All the ros2 nodes to receive data from all the CVLab sensors.
+
+| Computers | ssh                    | Password |
+| --------  | -------                | -------   |
+| Orin      | `ssh cvlab@192.168.1.49` | cvlabsensors |
+| Nuc       | `ssh ubm@192.168.1.43`   | ubm12345 |
+
 | Sensor Type | Sensor Name | Ros2 Node | Connection | IP | Instructions |
 | --------    | -------     | -------   | ------- | ------- | ------- |
 | Lidar  | PandarSX  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.201 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
