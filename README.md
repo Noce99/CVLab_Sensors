@@ -26,7 +26,7 @@ From your computer with a VNC client connect to:
 ## View Data
 From your computer:
 ```
-ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml send_buffer_limit:=10000000000
 ```
 
 ## HesaiLidar_ROS_2.0
@@ -141,6 +141,9 @@ ros2 launch event_camera_renderer renderer.launch.py
 Lunch `rqt`
 Plugins > Visualization > Image View
 ## RGB Camera
+Change the ip using: `/opt/pylon/bin/ipconfigurator`
+Change camera settings using: `/opt/pylon/bin/pylonviewer`
+or using ros with: `ros2 service call /my_camera/pylon_ros2_camera_node/set_image_encoding pylon_ros2_camera_interfaces/srv/SetStringValue "{value: rgb8}"`
 <a name="basler_build"></a>
 ### Build
 From `/home/cvlab/ros_ws`
