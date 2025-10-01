@@ -12,7 +12,7 @@
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | [build](#eventcamera_build) - [run](eventcamera_run) |
 | Depth Camera  | RealSense | [realsense-ros](https://github.com/IntelRealSense/realsense-ros) | USB | | [build](#realsense_build) - [run](#realsense_run) |
-| RGB Camera | Basler | | Ethernet | | [build](#basler_build) - [run](#basler_run) |
+| RGB Camera | Basler | [pylon-ros-camera](https://github.com/basler/pylon-ros-camera) | Ethernet | | [build](#basler_build) - [run](#basler_run) |
 
 ## Start VNC
 From the orin:
