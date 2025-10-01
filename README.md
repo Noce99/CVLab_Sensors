@@ -149,9 +149,14 @@ Change camera settings using:
 ```
 /opt/pylon/bin/pylonviewer
 ```
-or using ros with: 
+or using ros:
+SET RGB (other values: `mono8`, `mono16`, `bgr8`, `rgb8`, `bayer_bggr8`, `bayer_gbrg8`, `bayer_rggb8`, `bayer_grbg8`, `bayer_rggb16`, `bayer_bggr16`, `bayer_gbrg16`, `bayer_grbg16`):
 ```
 ros2 service call /my_camera/pylon_ros2_camera_node/set_image_encoding pylon_ros2_camera_interfaces/srv/SetStringValue "{value: rgb8}"
+```
+Set Brightness:
+```
+ros2 service call /my_camera/pylon_ros2_camera_node/set_brightness pylon_ros2_camera_interfaces/srv/SetBrightness "{target_brightness: 200, brightness_continuous: true, exposure_auto: true, gain_auto: true}"
 ```
 <a name="basler_build"></a>
 ### Build
