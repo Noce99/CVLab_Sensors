@@ -7,7 +7,8 @@
 
 | Sensor Type | Sensor Name | Ros2 Node | Connection | IP | Instructions |
 | --------    | -------     | -------   | ------- | ------- | ------- |
-| Lidar  | PandarSX  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.201 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
+| Lidar  | OT128  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.90 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
+| Lidar  | XT32  | [HesaiLidar_ROS_2.0](https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0) | Ethernet | 192.168.1.91 |[build](#hesai_lidar_build) - [run](#hesai_lidar_run)|
 | Lidar  | Livox Hap  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.100 | [build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Lidar  | Livox Mid360  | [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2) | Ethernet | 192.168.1.151 |[build](#livox_lidar_build) - [run](#livox_lidar_run)|
 | Event Camera  | EVKV4 - HD | [official](https://github.com/prophesee-ai/prophesee_ros_wrapper) / [alternative](https://github.com/ros-event-camera/metavision_driver) | USB | | [build](#eventcamera_build) - [run](eventcamera_run) |
