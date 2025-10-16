@@ -69,6 +69,8 @@ cmake .. && make -j
 ```
 sudo make install
 ```
+Docuemntation about lidar packets [here](https://github.com/Livox-SDK/Livox-SDK2/wiki/Livox-SDK-Communication-Protocol-HAP(English)#2-point-cloud--imu-data-protocol).
+
 #### Ros 2 Node Installation
 From `/home/cvlab/CVLab_Sensors`
 ```
@@ -92,6 +94,7 @@ From `/home/cvlab/ros_ws`
 ```
 colcon build --symlink-install --packages-select livox_ros_driver2
 ```
+
 ### Run
 <a name="livox_lidar_run"></a>
 MID360:
