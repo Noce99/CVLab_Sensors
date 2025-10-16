@@ -102,6 +102,10 @@ HAP:
 ```
 ros2 launch livox_ros_driver2 rviz_HAP_launch.py
 ```
+with cpp sdk:
+```
+/home/ubm/CVLab_Sensors/Livox-SDK2/build/samples/livox_lidar_quick_start/livox_lidar_quick_start /home/ubm/CVLab_Sensors/Livox-SDK2/samples/livox_lidar_quick_start/hap_noce.json
+```
 ## RealSensor
 <a name="realsense_build"></a>
 ### Build
