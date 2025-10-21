@@ -17,7 +17,7 @@
 
 ## Starting PTP Server on NUC
 ```
-sudo ptp4l -i enp2s0 -f /etc/linuxptp/ptp4l-master.conf -m --step_threshold 0.00002
+sudo ptp4l -i enp2s0 -m --step_threshold=1
 ```
 Setting time with a 2-hour (7200 seconds) delay because of the Italian timezone:
 ```
