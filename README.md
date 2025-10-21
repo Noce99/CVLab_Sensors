@@ -67,6 +67,11 @@ You can try the correct installation with: `realsense-viewer`
 - [Metavision Studio](https://propheseeai.jfrog.io/ui/packages/deb:%2F%2Fmetavision-studio)
 - [Creating a Python Venv](https://docs.prophesee.ai/stable/installation/linux.html#installing-dependencies)
 - I have linked some Python scripts in `/home/ubm/CVLab_Sensors/EventCamerasWorkingArea/samples`
+### Calibration
+```
+metavision_calibration_pipeline
+```
+Blinking chessboard at: `/usr/share/metavision/sdk/calibration/cpp_samples/metavision_calibration_pipeline/metavision_calibration_pattern_chessboard.html`
 ## RGB Camera
 <a name="basler"></a>
 Change the IP using:
