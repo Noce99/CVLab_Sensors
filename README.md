@@ -13,7 +13,7 @@
 | Lidar  | Livox Mid360  | [Livox SDK](https://github.com/Livox-SDK/Livox-SDK)  | Ethernet | 192.168.1.151 | [Livox Lidar](#livox_lidar)|
 | Event Camera  | EVKV4 - HD | [Premium SDK](https://propheseeai.jfrog.io/ui/repos/tree/General/metavision-sdk-5-debian) | USB | | [Prophesee Event](#prophesee_event) |
 | Depth Camera  | RealSense | [RealSense SDK]() | USB | | [RealSense](#realsense)|
-| RGB Camera | Basler | [Basler SDK]() | Ethernet |192.168.1.70-77 | [Basler](#basler) |
+| RGB Camera | Basler | [PyPylon](https://github.com/basler/pypylon/tree/master) | Ethernet |192.168.1.70-77 | [Basler](#basler) |
 
 ## Starting PTP Server on NUC
 ```
