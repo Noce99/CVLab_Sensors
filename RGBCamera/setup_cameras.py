@@ -27,7 +27,7 @@ def setup_camera(camera):
     ############
     camera.ExposureAuto.Value = "Continuous"
     camera.AutoExposureTimeLowerLimit.Value = 1.0
-    camera.AutoExposureTimeUpperLimit.Value = 10000000.0
+    camera.AutoExposureTimeUpperLimit.Value = 100000.0
 
     ########
     # Gain #
@@ -39,7 +39,8 @@ def setup_camera(camera):
     #################
     # Auto Function #
     #################
-    camera.AutoFunctionProfile.Value = "MinimizeGain" # MinimizeExposureTime
+    camera.AutoFunctionProfile.Value = "MinimizeGain"
+    # MinimizeExposureTime          MinimizeGain
     
     ##########
     # Colors #

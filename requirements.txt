@@ -1,3 +1,4 @@
 pypylon
 opencv-python
 h5py
+pygame
