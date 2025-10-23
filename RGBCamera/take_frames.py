@@ -1,77 +1,72 @@
 """
 There I will take data from the cameras and I will save them on the disk!
 """
+import os
+os.environ["PYLON_CAMEMU"] = "0" # "3"
+from pypylon import genicam
 from pypylon import pylon
-from datetime import datetime, timezone
-import threading
-import time
 import sys
+import time
+import cv2
 
+from setup_cameras import setup_camera
 
-def save_data_from_a_camera(camera_serial, path_to_save):
-    tlf = pylon.TlFactory.GetInstance()
-    camera = None
-    while camera is None:
-        print(f"Searching for serial: {camera_serial}")
-        devices = tlf.EnumerateDevices()
-        for d in devices:
-            if d.GetSerialNumber() == camera_serial:
-                camera = pylon.InstantCamera(tlf.CreateDevice(d))
-    print(f"Found out serial: {camera_serial}")
+# Number of images to be grabbed.
+countOfImagesToGrab = 10000
+maxCamerasToUse = 2
+
+# Get the transport layer factory.
+tlFactory = pylon.TlFactory.GetInstance()
+
+# Get all attached devices and exit application if no device is found.
+devices = tlFactory.EnumerateDevices()
+if len(devices) == 0:
+    raise pylon.RuntimeException("No camera present.")
+
+# Create an array of instant cameras for the found devices and avoid exceeding a maximum number of devices.
+cameras = pylon.InstantCameraArray(min(len(devices), maxCamerasToUse))
+
+# Create and attach all Pylon Devices.
+for i, camera in enumerate(cameras):
+    camera.Attach(tlFactory.CreateDevice(devices[i]))
     camera.Open()
 
-    # First let's enable PTP
-    camera.PtpEnable.Value = False
-    camera.BslPtpPriority1.Value = 255
-    # Enable end-to-end delay measurement
-    camera.BslPtpProfile.Value = "DelayRequestResponseDefaultProfile"
-    # Set the network mode to unicast
-    camera.BslPtpNetworkMode.Value = "Multicast"
-    # Enable PTP Management Protocol
-    camera.BslPtpManagementEnable.Value = True
-    # Disable two-step operation
-    camera.BslPtpTwoStep.Value = False
-    # ** Enable PTP on the current device **
-    camera.PtpEnable.Value = True
+    # Print the serial of the camera.
+    print("Using device ", camera.GetDeviceInfo().GetSerialNumber())
+    
+    setup_camera(camera)
 
-    # Let's setup FPS
-    camera.AcquisitionFrameRate.Value = 20
-
-    to_print = ""
-    check_iterations = 0
-    while camera.PtpServoStatus.Value != "Locked" or check_iterations < 5:
+check_iterations = 0
+while True:
+    all_locked = True
+    for i, camera in enumerate(cameras):
         camera.PtpDataSetLatch.Execute()
-        old_len = len(to_print)
-        to_print = f"{camera.PtpStatus.Value} [{camera.PtpServoStatus.Value}] [{camera.PtpOffsetFromMaster.Value}]"
-        print('\b' * old_len + " " * old_len, end="")
-        print('\b' * old_len + to_print, end="")
-        sys.stdout.flush()
         time.sleep(0.1)
-        check_iterations += 1
-    print()
-    print()
+        print(f"[{i}] -- {camera.PtpStatus.Value} [{camera.PtpServoStatus.Value}] [{camera.PtpOffsetFromMaster.Value} ns]")
+        if camera.PtpServoStatus.Value != "Locked":
+            all_locked = False
+    if all_locked:
+        break
+    time.sleep(0.1)
+    check_iterations += 1
+print()
+print()
 
-    camera.StartGrabbing()
-    img = pylon.PylonImage()
-    while True:
-        with camera.RetrieveResult(2000) as result:
+cameras.StartGrabbing()
 
-            # Calling AttachGrabResultBuffer creates another reference to the
-            # grab result buffer. This prevents the buffer's reuse for grabbing.
-            img.AttachGrabResultBuffer(result)
+# Grab c_countOfImagesToGrab from the cameras.
+for i in range(countOfImagesToGrab):
+    if not cameras.IsGrabbing():
+        break
 
-            filename = f"{result.GetTimeStamp()}_{camera_serial}.png"
-            img.Save(pylon.ImageFileFormat_Png, filename)
-            camera.PtpDataSetLatch.Execute()
-            print(f"{camera_serial} - [{result.GetID()}] {camera.PtpStatus.Value} [{camera.PtpServoStatus.Value}] [{camera.PtpOffsetFromMaster.Value}]")
+    grabResult = cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
 
-            # In order to make it possible to reuse the grab result for grabbing
-            # again, we have to release the image (effectively emptying the
-            # image object).
-            img.Release()
+    cameraContextValue = grabResult.GetCameraContext()
 
+    print(f"Camera {cameraContextValue} : {grabResult.GrabSucceeded()}")
+    img = grabResult.GetArray()
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(f"{cameraContextValue}-{i}.png", img)
 
-
-
-if __name__ == "__main__":
-    save_data_from_a_camera("40663113", "/home/ubm/Downloads")
+# Comment the following two lines to disable waiting on exit.
+sys.exit(0)
