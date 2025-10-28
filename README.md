@@ -15,6 +15,10 @@
 | Depth Camera  | RealSense | [RealSense SDK]() | USB | | [RealSense](#realsense)|
 | RGB Camera | Basler | [PyPylon](https://github.com/basler/pypylon/tree/master) | Ethernet |192.168.1.70-77 | [Basler](#basler) |
 
+## Visualizer
+![RGBs](assets/rgbs.png)
+![Events](assets/events.png)
+
 ## Starting PTP Server on NUC
 ```
 sudo ptp4l -i enp2s0 -m --step_threshold=1
