@@ -53,10 +53,9 @@ def setup_camera(camera):
     ################
     # Spatial Size #
     ################
-    camera.Width.Value = 2448
-    camera.Height.Value = 2048
-    """
-    max_wodth = camera.WidthMax.Value
-    max_height = camera.HeightMax.Value
-    """
+    camera.Width.Value = 2448 // 3      # 2448
+    camera.Height.Value = 2048 // 3     # 2048
+
+    camera.BslCenterX.Execute()
+    camera.BslCenterY.Execute()
 

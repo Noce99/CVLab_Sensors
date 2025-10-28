@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from pypylon import genicam
 from pypylon import pylon
-from utils import Section
+from utils import Section, resize_with_aspect_ratio
 from RGBCamera.setup_cameras import setup_camera
 
 
@@ -45,8 +45,7 @@ class RGBSection(Section):
                 args = (self.cameras, self.info),
                 daemon=True,
             )
-        self.camera_thread.start()
-        
+        self.camera_thread.start()        
 
     @staticmethod
     def camera_handler(cameras, info):
@@ -73,12 +72,12 @@ class RGBSection(Section):
 
         start = time.time()
 
+        how_many_images_between_ptp_updates = 50
+
         while True:
             grabResult = cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
 
             cameraContextValue = grabResult.GetCameraContext()
-
-            cameras[cameraContextValue].PtpDataSetLatch.Execute()
 
             if cameraContextValue == 0:
                 camera_to_select = "left_last_image"
@@ -86,25 +85,35 @@ class RGBSection(Section):
                     info["left_good_count"] += 1
                 else:
                     info["left_bad_count"] += 1
+                if info["left_good_count"] % how_many_images_between_ptp_updates == 0:
+                    try:
+                        cameras[0].PtpDataSetLatch.Execute()
+                        info["left_ptp_status"] = cameras[0].PtpStatus.Value
+                        info["left_ptp_slave_status"] = cameras[0].PtpServoStatus.Value
+                        info["left_ptp_offset"] = cameras[0].PtpOffsetFromMaster.Value
+                    except:
+                        print("Camera 0 error!")
             else:
                 camera_to_select = "right_last_image"
                 if grabResult.GrabSucceeded():
                     info["right_good_count"] += 1
                 else:
                     info["right_bad_count"] += 1
+                if info["right_good_count"] % how_many_images_between_ptp_updates == 0:
+                    try:
+                        cameras[cameraContextValue].PtpDataSetLatch.Execute()
+                        info["right_ptp_status"] = cameras[cameraContextValue].PtpStatus.Value
+                        info["right_ptp_slave_status"] = cameras[cameraContextValue].PtpServoStatus.Value
+                        info["right_ptp_offset"] = cameras[cameraContextValue].PtpOffsetFromMaster.Value
+                    except Exception as e:
+                        print(f"Camera {cameraContextValue} error!")
+                        print(e)
             if grabResult.GrabSucceeded():
                 info[camera_to_select] = grabResult.GetArray()
 
             now = time.time()
             info["left_FPS"] = info["left_good_count"] / (now-start)
             info["right_FPS"] = info["right_good_count"] / (now-start)
-
-            info["left_ptp_status"] = cameras[0].PtpStatus.Value
-            info["left_ptp_slave_status"] = cameras[0].PtpServoStatus.Value
-            info["left_ptp_offset"] = cameras[0].PtpOffsetFromMaster.Value
-            info["right_ptp_status"] = cameras[1].PtpStatus.Value
-            info["right_ptp_slave_status"] = cameras[1].PtpServoStatus.Value
-            info["right_ptp_offset"] = cameras[1].PtpOffsetFromMaster.Value
 
     def draw(self):
         if self.info["state"] == "Inizializing Cameras":
@@ -124,31 +133,23 @@ class RGBSection(Section):
 
             image_width = int(self.window.get_width() * 0.9 // 2)
             if self.info["left_last_image"] is not None:
-                image_height = image_width / self.info["left_last_image"].shape[0] * self.info["left_last_image"].shape[1]
-                position = (
-                    int(self.window.get_width() // 4 - image_width / 2),
-                    int(self.window.get_height() * 0.1 + (self.window.get_height() * 0.8) // 2 -
-                    image_height / 2)
-                )
-                to_skip = int(self.info["left_last_image"].shape[1] / image_width)
-                img = self.info["left_last_image"][::to_skip, ::to_skip]
+                img, w, h = resize_with_aspect_ratio(self.info["left_last_image"], width=image_width)
                 if img.ndim == 2:
                     img = np.stack([img] * 3, axis=-1)
                 surfarray = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
-                self.window.blit(surfarray, position)
+                rect = pygame.Rect(0, 0, w, h)
+                rect.centerx = int(self.window.get_width() / 4)
+                rect.centery = int(self.window.get_height() * 0.15 + h/2)
+                self.window.blit(surfarray, rect)
             if self.info["right_last_image"] is not None:
-                image_height = image_width / self.info["right_last_image"].shape[0] * self.info["right_last_image"].shape[1]
-                position = (
-                    int(self.window.get_width() // 4 * 3 - image_width / 2),
-                    int(self.window.get_height() * 0.1 + (self.window.get_height() * 0.8) // 2 -
-                    image_height / 2)
-                )
-                to_skip = int(self.info["right_last_image"].shape[1] / image_width)
-                img = self.info["right_last_image"][::to_skip, ::to_skip]
+                img, w, h = resize_with_aspect_ratio(self.info["right_last_image"], width=image_width)
                 if img.ndim == 2:
                     img = np.stack([img] * 3, axis=-1)
                 surfarray = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
-                self.window.blit(surfarray, position)
+                rect = pygame.Rect(0, 0, w, h)
+                rect.centerx = int(self.window.get_width() * 3 / 4)
+                rect.centery = int(self.window.get_height() * 0.15 + h/2)
+                self.window.blit(surfarray, rect)
 
             # Let's draw the logs
 

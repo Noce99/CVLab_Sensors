@@ -34,7 +34,7 @@ class Visualizer:
                 EventSection("Events", self.window),
                 LidarSection("Lidars", self.window)
             ]
-            self.section_height_ration = 1./10.
+            self.section_height_ration = 0.1
             self.section_text_color = (255, 0, 0)
             self.section_background_color = (0, 255, 0)
             self.section_selected_background_color = (0, 125, 125)
