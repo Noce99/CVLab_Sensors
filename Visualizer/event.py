@@ -56,12 +56,11 @@ class EventSection(Section):
     def camera_handler(serial, color_palette, info):
 
         camera = initiate_device(path=serial)
-        iterator = EventsIterator.from_device(camera)
+        iterator = EventsIterator.from_device(camera, delta_t=100000, mode="mixed", relative_timestamps=False)
         generator = \
             PeriodicFrameGenerationAlgorithm(
                 sensor_width =      iterator.get_size()[1],
                 sensor_height =     iterator.get_size()[0],
-                fps =               25,
                 palette =           color_palette
             )
 
@@ -73,6 +72,7 @@ class EventSection(Section):
 
         info["state"] = "Receiving Data"
 
+    
         for evs in iterator:
             generator.process_events(evs)
 
@@ -105,6 +105,17 @@ class EventSection(Section):
                 rect.centerx = int(self.window.get_width() / 4)
                 rect.centery = int(self.window.get_height() * 0.15 + h/2)
                 self.window.blit(surfarray, rect)
+
+                text_surface = self.font.render(
+                    f"{self.left_info["last_time_step"]}",  # Text
+                    True,                                   # Antialias
+                    (0, 255, 0),                            # Text Color
+                )
+                text_rect = text_surface.get_rect()
+                text_rect.centerx = self.window.get_width() // 4
+                text_rect.centery = int(self.window.get_height() * 0.9)
+                self.window.blit(text_surface, text_rect)
+
             if self.right_info["last_image"] is not None:
                 img, w, h = resize_with_aspect_ratio(self.right_info["last_image"], width=image_width)
                 if img.ndim == 2:
@@ -116,4 +127,25 @@ class EventSection(Section):
                 rect.centerx = int(self.window.get_width() * 3 / 4)
                 rect.centery = int(self.window.get_height() * 0.15 + h/2)
                 self.window.blit(surfarray, rect)
+
+                text_surface = self.font.render(
+                    f"{self.right_info["last_time_step"]}",  # Text
+                    True,                                    # Antialias
+                    (0, 255, 0),                             # Text Color
+                )
+                text_rect = text_surface.get_rect()
+                text_rect.centerx = self.window.get_width() // 4 * 3
+                text_rect.centery = int(self.window.get_height() * 0.9)
+                self.window.blit(text_surface, text_rect)
+
+
+                text_surface = self.font.render(
+                    f"{abs(self.right_info["last_time_step"] - self.left_info["last_time_step"]) / 10**6:.2f} s",  # Text
+                    True,                                    # Antialias
+                    (255, 0, 0),                             # Text Color
+                )
+                text_rect = text_surface.get_rect()
+                text_rect.centerx = self.window.get_width() // 2
+                text_rect.centery = int(self.window.get_height() * 0.7)
+                self.window.blit(text_surface, text_rect)
 
