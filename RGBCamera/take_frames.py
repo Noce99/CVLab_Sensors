@@ -62,11 +62,12 @@ for i in range(countOfImagesToGrab):
     grabResult = cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
 
     cameraContextValue = grabResult.GetCameraContext()
+    timestamp = grabResult.GetTimeStamp()
 
     print(f"Camera {cameraContextValue} : {grabResult.GrabSucceeded()}")
     img = grabResult.GetArray()
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    cv2.imwrite(f"{cameraContextValue}-{i}.png", img)
+    cv2.imwrite(f"{cameraContextValue}-{timestamp}.png", img)
 
 # Comment the following two lines to disable waiting on exit.
 sys.exit(0)

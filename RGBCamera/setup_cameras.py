@@ -33,8 +33,8 @@ def setup_camera(camera):
     # Gain #
     ########
     camera.GainAuto.Value = "Continuous"
-    camera.AutoGainLowerLimit.Value = 0.0
-    camera.AutoGainUpperLimit.Value = 48.0
+    # camera.AutoGainLowerLimit.Value = 0.0
+    # camera.AutoGainUpperLimit.Value = 48.0
 
     #################
     # Auto Function #
@@ -53,8 +53,18 @@ def setup_camera(camera):
     ################
     # Spatial Size #
     ################
-    camera.Width.Value = 2448 // 3      # 2448
-    camera.Height.Value = 2048 // 3     # 2048
+    w = int(2448 / 1.7)      # 2448
+    h = int(2048 / 2.5)     # 2048
+
+    if w % 2 != 0:
+        camera.Width.Value = w + 1
+    else:
+        camera.Width.Value = w 
+
+    if h % 2 != 0:
+        camera.Height.Value = h + 1
+    else:
+        camera.Height.Value = h
 
     camera.BslCenterX.Execute()
     camera.BslCenterY.Execute()
