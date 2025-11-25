@@ -14,9 +14,11 @@ from metavision_core.event_io import EventsIterator
 from utils import Section, resize_with_aspect_ratio
 
 
+
+
 LEFT_SERIAL = "00051962"
 RIGHT_SERIAL = "00051961"
-COLOR_PALETTE = ColorPalette.Dark
+COLOR_PALETTE = ColorPalette.CoolWarm
 # CoolWarm, Dark, Gray, Light
 
 class EventSection(Section):

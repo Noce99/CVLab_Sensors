@@ -32,7 +32,7 @@ class LidarSection(Section):
         self.img_size = self.rows * self.cols * self.channels
         print(f"Shared image found: {self.rows}x{self.cols}x{self.channels}")
 
-        self.depth_or_reflection = "asdasdasd"
+        self.depth_or_reflection = "depth"
 
     
     def draw(self):
