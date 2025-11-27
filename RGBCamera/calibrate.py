@@ -9,7 +9,7 @@ import shutil
 import numpy as np
 
 
-PATTERN_SIZE = (8, 5)
+PATTERN_SIZE = (9, 6)
 
 def read_calibration_data(delete_calibration_couples=True) -> Tuple[Dict[str,str], Dict[str,str]]:
     calibration_data_folder_path = "./calibration_data"

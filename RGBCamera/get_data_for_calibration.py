@@ -33,6 +33,11 @@ def main():
         "40665216": right_folder,
     }
 
+    left_camera = {
+        "40663113": False,
+        "40665216": True,
+    }
+
 
     # Number of images to be grabbed.
     countOfImagesToGrab = 10000
@@ -60,7 +65,7 @@ def main():
 
         camera_serials[i] = camera.GetDeviceInfo().GetSerialNumber()
         
-        setup_camera(camera)
+        setup_camera(camera, left_camera[camera_serials[i]])
 
     check_iterations = 0
     while True:

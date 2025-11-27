@@ -1,4 +1,4 @@
-def setup_camera(camera):
+def setup_camera(camera, is_left_camera=None):
     #######
     # PTP #
     #######
@@ -39,7 +39,7 @@ def setup_camera(camera):
     #################
     # Auto Function #
     #################
-    camera.AutoFunctionProfile.Value = "MinimizeGain"
+    camera.AutoFunctionProfile.Value = "MinimizeExposureTime"
     # MinimizeExposureTime          MinimizeGain
     
     ##########
@@ -53,19 +53,29 @@ def setup_camera(camera):
     ################
     # Spatial Size #
     ################
-    w = int(2448 / 2.5)      # 2448
-    h = int(2048 / 2.5)     # 2048
+    w = int(2448 * 0.6)     # 2448
+    h = int(2048  * 0.2)     # 2048
 
-    if w % 2 != 0:
-        camera.Width.Value = w + 1
-    else:
-        camera.Width.Value = w 
+    offset = 150
 
-    if h % 2 != 0:
-        camera.Height.Value = h + 1
-    else:
-        camera.Height.Value = h
+    while w % 4 != 0:
+        w = w + 1
+    
+    camera.Width.Value = w 
 
-    camera.BslCenterX.Execute()
-    camera.BslCenterY.Execute()
+    while h %  4 != 0:
+        h = h + 1
+
+    camera.Height.Value = h
+
+    if is_left_camera is not None:
+        if is_left_camera:
+            print("Left camera detected, setting OffsetX to 0")
+            camera.OffsetX.Value = 500
+        else:
+            print("Right camera detected, setting OffsetX to max")
+            camera.OffsetX.Value = 500
+
+    # camera.BslCenterX.Execute()
+    # camera.BslCenterY.Execute()
 
