@@ -91,8 +91,9 @@ class RGBSection(Section):
                         info["left_ptp_status"] = cameras[0].PtpStatus.Value
                         info["left_ptp_slave_status"] = cameras[0].PtpServoStatus.Value
                         info["left_ptp_offset"] = cameras[0].PtpOffsetFromMaster.Value
-                    except:
+                    except Exception as e:
                         print("Camera 0 error!")
+                        print(e)
             else:
                 camera_to_select = "right_last_image"
                 if grabResult.GrabSucceeded():

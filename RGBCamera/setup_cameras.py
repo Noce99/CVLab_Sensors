@@ -53,7 +53,7 @@ def setup_camera(camera, is_left_camera=None):
     ################
     # Spatial Size #
     ################
-    w = int(2448 * 0.6)     # 2448
+    w = int(2448 * 0.5)     # 2448
     h = int(2048  * 0.2)     # 2048
 
     offset = 150
@@ -77,5 +77,5 @@ def setup_camera(camera, is_left_camera=None):
             camera.OffsetX.Value = 500
 
     # camera.BslCenterX.Execute()
-    # camera.BslCenterY.Execute()
+    camera.BslCenterY.Execute()
 

@@ -29,13 +29,14 @@ def test_rectification(left_img, right_img, left_map1, left_map2, right_map1, ri
     
     # Draw horizontal lines to verify rectification
     h, w = left_rect.shape[:2]
+
     for y in range(0, h, 50):
         cv2.line(vis, (0, y), (w*2, y), (0, 255, 0), 1)
     
     # Save the rectified images
-    cv2.imwrite(os.path.join(output_path, f"rectified_left_{time.time()}.png"), left_rect)
-    cv2.imwrite(os.path.join(output_path, f"rectified_right_{time.time()}.png"), right_rect)
-    cv2.imwrite(os.path.join(output_path, f"rectified_comparison_{time.time()}.png"), vis)
+    cv2.imwrite(os.path.join(output_path, f"rectified_left.png"), left_rect)
+    cv2.imwrite(os.path.join(output_path, f"rectified_right.png"), right_rect)
+    cv2.imwrite(os.path.join(output_path, f"rectified_comparison.png"), vis)
     
     return left_rect, right_rect
 
@@ -111,31 +112,34 @@ def main():
         timestamp = grabResult.GetTimeStamp()
 
         img = grabResult.GetArray()
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
-        if left_right_serial[camera_serials[cameraContextValue]] == "left":
-            left_img = img
-        elif left_right_serial[camera_serials[cameraContextValue]] == "right":
-            right_img = img
-        
-        if left_img is not None and right_img is not None:
+        if img is not None:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            if left_right_serial[camera_serials[cameraContextValue]] == "left":
+                left_img = img
+            elif left_right_serial[camera_serials[cameraContextValue]] == "right":
+                right_img = img
+            
+            if left_img is not None and right_img is not None:
 
-            # Let's Rectify
-            _, _, output_path = read_calibration_data(delete_calibration_couples=False)
+                # Let's Rectify
+                _, _, output_path = read_calibration_data(delete_calibration_couples=False)
 
-            stereo_maps = np.load(os.path.join(output_path, 'stereo.npy'), allow_pickle=True).item()
+                stereo_maps = np.load(os.path.join(output_path, 'stereo.npy'), allow_pickle=True).item()
 
-            # Access the individual maps
-            left_map1 = stereo_maps['left_map1']
-            left_map2 = stereo_maps['left_map2'] 
-            right_map1 = stereo_maps['right_map1']
-            right_map2 = stereo_maps['right_map2']
+                # Access the individual maps
+                left_map1 = stereo_maps['left_map1']
+                left_map2 = stereo_maps['left_map2'] 
+                right_map1 = stereo_maps['right_map1']
+                right_map2 = stereo_maps['right_map2']
 
-            # Run the test
-            left_rectified, right_rectified = test_rectification(left_img, right_img, left_map1, left_map2, right_map1, right_map2, output_path)
+                # Run the test
+                left_rectified, right_rectified = test_rectification(left_img, right_img, left_map1, left_map2, right_map1, right_map2, output_path)
 
-            left_img = None
-            right_img = None
+                print(left_rectified.shape)
+
+                left_img = None
+                right_img = None
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ import time
 import pygame
 import cv2
 import numpy as np
+from datetime import datetime
+
 from pypylon import genicam
 from pypylon import pylon
 from utils import Section, resize_with_aspect_ratio
@@ -39,6 +41,28 @@ class RGBSection(Section):
             "right_last_image": None,
             "right_FPS": 0.,
         }
+
+        # Setup path
+        if not os.path.exists("./calibration_data"):
+            os.mkdir("./calibration_data")
+
+        current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        current_folder = os.path.join("./calibration_data", current_time)
+        os.mkdir(current_folder)
+
+        self.left_folder = os.path.join(current_folder, "left")
+        self.right_folder = os.path.join(current_folder, "right")
+        os.mkdir(self.left_folder)
+        os.mkdir(self.right_folder)  
+
+        self.output_path = os.path.join("./calibration_data", current_time, "live_calibration_couples")
+        os.mkdir(self.output_path)
+
+        self.chess_i = 0
+
+        self.left_dots_backet = []
+        self.right_dots_backet = []
+
         self.cameras = pylon.InstantCameraArray(2) # 0 -> left, 1 --> right
         self.camera_thread = \
             threading.Thread(
@@ -92,8 +116,9 @@ class RGBSection(Section):
                         info["left_ptp_status"] = cameras[0].PtpStatus.Value
                         info["left_ptp_slave_status"] = cameras[0].PtpServoStatus.Value
                         info["left_ptp_offset"] = cameras[0].PtpOffsetFromMaster.Value
-                    except:
+                    except Exception as e:
                         print("Camera 0 error!")
+                        print(e)
             else:
                 camera_to_select = "right_last_image"
                 if grabResult.GrabSucceeded():
@@ -137,7 +162,10 @@ class RGBSection(Section):
             image_width = int(self.window.get_width() * 0.9 // 2)
             if self.info["left_last_image"] is not None:
                 #---img originale sinistra
-                img, w, h = resize_with_aspect_ratio(self.info["left_last_image"], width=image_width)
+                img = np.copy(self.info["left_last_image"])
+                for x, y in self.left_dots_backet:
+                    cv2.circle(img, (x,y), 10, (0,0,255), -1)
+                img, w, h = resize_with_aspect_ratio(img, width=image_width)
                 if img.ndim == 2:
                     img = np.stack([img] * 3, axis=-1)
                 surfarray = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
@@ -145,9 +173,13 @@ class RGBSection(Section):
                 rect.centerx = int(self.window.get_width() / 4)#va modificato la larghezza 
                 rect.centery = int(self.window.get_height() * 0.15 + h/2)
                 self.window.blit(surfarray, rect)
+
             if self.info["right_last_image"] is not None:
                 #---img originale destra
-                img, w, h = resize_with_aspect_ratio(self.info["right_last_image"], width=image_width)
+                img = np.copy(self.info["right_last_image"])
+                for x, y in self.right_dots_backet:
+                    cv2.circle(img, (x,y), 10, (0,0,255), -1)
+                img, w, h = resize_with_aspect_ratio(img, width=image_width)
                 if img.ndim == 2:
                     img = np.stack([img] * 3, axis=-1)
                 surfarray = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
@@ -156,40 +188,15 @@ class RGBSection(Section):
                 rect.centery = int(self.window.get_height() * 0.15 + h/2)
                 self.window.blit(surfarray, rect)
             
-            #ho disegnato le immagini pulite
-
-
-
-
-
-
-
-
             PATTERN_SIZE = (9, 6)     
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.0001)
             flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE + cv2.CALIB_CB_FILTER_QUADS
             
-            #percorso salvataggio img
-            calibration_data_folder_path = "./calibration_data"
-            data_folder = os.listdir(calibration_data_folder_path)
-            data_folder.sort()
-            output_path = os.path.join("./calibration_data", data_folder[-1], "live_calibration_couples")
-            os.mkdir(output_path)
-
-            chess_i = 0
-
-            all_corners_left = []
-            all_corners_right = []
-
-            self.last_pair_good = False
-            
-            left_img = self.info["left_last_image"] 
+            left_img = self.info["left_last_image"]
+            left_img = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
             right_img = self.info["right_last_image"]
+            right_img = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
             
-            img_size = None
-            if img_size is None:
-               img_size = (left_img.shape[1], left_img.shape[0])
-
             if left_img is not None and right_img is not None:
 
                 left_img_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
@@ -198,110 +205,22 @@ class RGBSection(Section):
                 res_left, corners_left = cv2.findChessboardCorners(left_img_gray, PATTERN_SIZE, flags=flags)
                 res_right, corners_right = cv2.findChessboardCorners(right_img_gray, PATTERN_SIZE, flags=flags)
 
-                #salvo dati per il render
-                self.info["return_left"]=res_left
-                self.info["return_left"]=res_right
-                self.info["corners_left"]=corners_left
-                self.info["corners_right"]=corners_right
-
                 if res_left and res_right:
                     corners_left_fine = cv2.cornerSubPix(left_img_gray, corners_left, (11,11), (-1,-1), criteria)
                     corners_right_fine = cv2.cornerSubPix(right_img_gray, corners_right, (11,11), (-1,-1), criteria)
 
-                    #salvo le immagini pulite da usare per fare i corner
-                    left_img_corners = left_img.copy()
-                    right_img_corners = right_img.copy()
+                    for i in range(corners_left_fine.shape[0]):
+                        self.left_dots_backet.append((int(corners_left_fine[i, 0, 0]), int(corners_left_fine[i, 0, 1])))
+                    
+                    for i in range(corners_right_fine.shape[0]):
+                        self.right_dots_backet.append((int(corners_right_fine[i, 0, 0]), int(corners_right_fine[i, 0, 1])))
+                    
 
+                    cv2.imwrite(os.path.join(self.left_folder, f"{self.chess_i}.png"), left_img)
+                    cv2.imwrite(os.path.join(self.right_folder, f"{self.chess_i}.png"), right_img)
 
-                    #disegno le immagini calibrate
+                    self.chess_i += 1
 
-                    image_width = int(self.window.get_width() * 0.9 // 2)
-                    if self.info["left_last_image"] is not None:
-                        #---img calibrata sinistra (ho solo inserito drawCorners)
-
-                        img_cal, w_cal, h_cal = resize_with_aspect_ratio(cv2.drawChessboardCorners(left_img_corners, PATTERN_SIZE, corners_left_fine, res_left), width=image_width)
-                        if img_cal.ndim == 2:
-                            img_cal = np.stack([img_cal] * 3, axis=-1)
-                        if self.last_pair_good:
-                            pygame.draw.rect(self.window, (0,255,0), img, 4)
-                        surfarray_cal = pygame.surfarray.make_surface(np.transpose(img_cal, (1, 0, 2)))
-                        rect_cal = pygame.Rect(0, 0, w_cal, h_cal)
-                        rect_cal.centerx = int(self.window.get_width() / 4)#va modificato la larghezza 
-                        rect_cal.centery = int(self.window.get_height() * 0.15 + h/2)
-                        self.window.blit(surfarray_cal, rect_cal)
-
-                    if self.info["right_last_image"] is not None:
-                        #---img calibrata destra (ho solo inserito drawCorners)
-
-                        img_cal, w_cal, h_cal = resize_with_aspect_ratio(cv2.drawChessboardCorners(right_img_corners, PATTERN_SIZE, corners_right_fine, res_right), width=image_width)
-                        if img_cal.ndim == 2:
-                            img_cal = np.stack([img_cal] * 3, axis=-1)
-                        if self.last_pair_good:
-                            pygame.draw.rect(self.window, (0,255,0), img, 4)
-                        surfarray_cal = pygame.surfarray.make_surface(np.transpose(img_cal, (1, 0, 2)))
-                        rect_cal = pygame.Rect(0, 0, w_cal, h_cal)
-                        rect_cal.centerx = int(self.window.get_width() / 4)#va modificato la larghezza 
-                        rect_cal.centery = int(self.window.get_height() * 0.15 + h/2)
-                        self.window.blit(surfarray_cal, rect_cal)
-
-                    #ho disegneto live le due img
-                    #Ora termino il salvataggio di tali img su disco
-
-
-                    cv2.imwrite(os.path.join(output_path, f"{chess_i}_left.png"), left_img_corners)
-                    cv2.imwrite(os.path.join(output_path, f"{chess_i}_right.png"), right_img_corners)
-
-                    chess_i += 1
-
-                    all_corners_left.append(corners_left_fine)
-                    all_corners_right.append(corners_right_fine)
-
-        
-            """# Now in corners we have the corners from the left and right images
-            assert len(all_corners_left) == len(all_corners_right)
-
-            pattern_points = np.zeros((np.prod(PATTERN_SIZE), 3), np.float32)
-            pattern_points[:, :2] = np.indices(PATTERN_SIZE).T.reshape(-1, 2)
-            pattern_points = [pattern_points] * len(all_corners_left)
-
-            err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
-                pattern_points, all_corners_left, all_corners_right, None, None, None, None, img_size, flags=0)
-
-            print(f"T = {T}")
-            print(f"R = {R}")
-
-            # After stereo calibration, compute rectification maps
-            R1, R2, P1, P2, Q, validPixROI1, validPixROI2 = cv2.stereoRectify(
-                Kl, Dl, Kr, Dr, img_size, R, T, alpha=0.9
-            )
-
-            # Compute rectification maps
-            left_map1, left_map2 = cv2.initUndistortRectifyMap(
-                Kl, Dl, R1, P1, img_size, cv2.CV_16SC2
-            )
-            right_map1, right_map2 = cv2.initUndistortRectifyMap(
-                Kr, Dr, R2, P2, img_size, cv2.CV_16SC2
-            )
-
-            np.save(os.path.join(output_path, 'stereo.npy'), {'left_map1': left_map1, 'left_map2': left_map2, 'right_map1': right_map1, 'right_map2': right_map2})"""
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            
-
-            
             # Let's draw the logs
 
             left_camera_x = self.window.get_width() // 4
