@@ -5,7 +5,8 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide pygame message"
 import pygame
 from utils import Section
 from home import HomeSection
-from rgb import RGBSection
+#from rgb import RGBSection
+from rgb_live import RGBSection
 from event import EventSection
 from lidar import LidarSection
 

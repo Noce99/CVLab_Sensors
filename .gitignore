@@ -4,3 +4,4 @@ __pycache__
 .vscode/
 LivoxLidar/get_data_from_hap
 calibration_data/
+venv
