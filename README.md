@@ -23,9 +23,9 @@
 ```
 sudo ptp4l -i enp2s0 -m --step_threshold=1
 ```
-Setting time with a 2-hour (7200 seconds) delay because of the Italian timezone:
+If needed you can set the time with a 2-hour (7200 seconds) delay because of the Italian timezone:
 ```
-sudo phc2sys -s CLOCK_REALTIME -c enp2s0 -m -O 7200
+sudo phc2sys -s CLOCK_REALTIME -c enp2s0 -m -O 0
 ```
 ## Hesai Lidars
 <a name="hesai_lidar"></a>
