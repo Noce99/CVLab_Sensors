@@ -16,6 +16,7 @@ project/
 └── cross_calibration.py                   # questo script
 """
 
+
 import os
 import cv2
 import numpy as np

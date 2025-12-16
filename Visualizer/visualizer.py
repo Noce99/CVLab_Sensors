@@ -7,7 +7,8 @@ from utils import Section
 from home import HomeSection
 #from rgb import RGBSection
 from rgb_live import RGBSection
-from event import EventSection
+# from event import EventSection
+from event_live import EventSection
 from lidar import LidarSection
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

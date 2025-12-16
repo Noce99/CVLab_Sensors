@@ -19,7 +19,7 @@ from utils import Section, resize_with_aspect_ratio
 
 LEFT_SERIAL = "00051962"
 RIGHT_SERIAL = "00051961"
-COLOR_PALETTE = ColorPalette.CoolWarm
+COLOR_PALETTE = ColorPalette.Dark
 # CoolWarm, Dark, Gray, Light
 
 class EventSection(Section):
@@ -40,11 +40,11 @@ class EventSection(Section):
         self.right_info = copy.deepcopy(self.left_info)
 
          # Setup path
-        if not os.path.exists("./calibration_data"):
-            os.mkdir("./calibration_data")
+        if not os.path.exists("./calibration_data_events"):
+            os.mkdir("./calibration_data_events")
 
         current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        current_folder = os.path.join("./calibration_data", current_time)
+        current_folder = os.path.join("./calibration_data_events", current_time)
         os.mkdir(current_folder)
 
         self.left_folder = os.path.join(current_folder, "left")
@@ -52,7 +52,7 @@ class EventSection(Section):
         os.mkdir(self.left_folder)
         os.mkdir(self.right_folder)  
 
-        self.output_path = os.path.join("./calibration_data", current_time, "live_calibration_couples")
+        self.output_path = os.path.join("./calibration_data_events", current_time, "live_calibration_couples")
         os.mkdir(self.output_path)
 
         self.chess_i = 0
@@ -99,10 +99,25 @@ class EventSection(Section):
 
     
         for evs in iterator:
-            generator.process_events(evs)
+            try:
+                generator.process_events(evs)
+            except:
+                pass
 
+    def process_image(self, image):
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        image[image<40] = 0
+        image[image>=40] = 255
+
+        image = cv2.GaussianBlur(image, (15, 15), 0)
+
+        # new_height, new_width = image.shape[0] // 2, image.shape[1] // 2
+        # image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        return image
 
     def draw(self):
+        start = time.time()
         if self.left_info["state"] == "Inizializing Camera" or \
                 self.right_info["state"] == "Inizializing Camera":
             to_show = f"Left: {self.left_info['state'] == 'Inizializing Camera'} \
@@ -185,24 +200,6 @@ class EventSection(Section):
 
 
 
-
-
-
-
-
-            def process_image(image):
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-                image[image<40] = 0
-                image[image>=40] = 255
-
-                image = cv2.GaussianBlur(image, (15, 15), 0)
-
-                # new_height, new_width = image.shape[0] // 2, image.shape[1] // 2
-                # image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                return image
-
-
             PATTERN_SIZE = (9, 6)     
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
             flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE + cv2.CALIB_CB_FILTER_QUADS
@@ -213,11 +210,19 @@ class EventSection(Section):
             
             if left_img is not None and right_img is not None:
 
-                left_img_gray = process_image(left_img)
-                right_img_gray = process_image(right_img)
+                left_img_gray = self.process_image(left_img)
+
 
                 res_left, corners_left = cv2.findChessboardCorners(left_img_gray, PATTERN_SIZE)#è stato tolto flags=flags
-                res_right, corners_right = cv2.findChessboardCorners(right_img_gray, PATTERN_SIZE)
+
+                if res_left:
+                    right_img_gray = self.process_image(right_img)
+
+                    res_right, corners_right = cv2.findChessboardCorners(right_img_gray, PATTERN_SIZE)
+                else:
+                    res_right = False
+
+                # print(f"Left = {res_left} Right = {res_right} [{time.time()}]")
 
                 if res_left and res_right:
                     corners_left_fine = cv2.cornerSubPix(left_img_gray, corners_left, (11,11), (-1,-1), criteria)
@@ -234,3 +239,7 @@ class EventSection(Section):
                     cv2.imwrite(os.path.join(self.right_folder, f"{self.chess_i}.png"), right_img)
 
                     self.chess_i += 1
+            else:
+                print(f"No images! {time.time()} {left_img is None} {right_img is None}")
+
+        print(time.time()-start)

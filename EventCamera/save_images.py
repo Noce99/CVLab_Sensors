@@ -11,6 +11,9 @@ import argparse
 import time
 
 
+FPS = 10.
+ACCUMULATION_MS = 10
+
 class SaveEventImages:
     start_time_us: int
 
@@ -31,20 +34,26 @@ def get_data_from_camera(left_camera: bool, path: str):
     while True:
         try:
             device = initiate_device(path=serial)
-            if left_camera:
+            """if left_camera:
                 print(f"DONE LEFT!")
             else:
-                print(f"DONE RIGHT!")
+                print(f"DONE RIGHT!")"""
             break
         except Exception as e:
+            print(f"Error initiating Event device {serial}: {e}. Retrying...")
             pass
-    mv_iterator = EventsIterator.from_device(device)
+    mv_iterator = EventsIterator.from_device(
+        device =  device,
+        delta_t = ACCUMULATION_MS * 1e3,
+        mode =    "delta_t",
+    )
     height, width = mv_iterator.get_size()
     event_frame_gen = PeriodicFrameGenerationAlgorithm(
-        sensor_width=width,
-        sensor_height=height,
-        fps=10,
-        palette=ColorPalette.Dark
+        sensor_width =         width,
+        sensor_height =        height,
+        fps =                  FPS,
+        accumulation_time_us = int(ACCUMULATION_MS * 1e3),
+        palette =              ColorPalette.Dark,
     )
     sei = SaveEventImages(
         int(time.time() * 1_000_000),
@@ -52,6 +61,10 @@ def get_data_from_camera(left_camera: bool, path: str):
     )
     event_frame_gen.set_output_callback(sei.save)
 
+    if left_camera:
+        print(f"Starting taking data from Left Event Camera...")
+    else:
+        print(f"Starting taking data from Right Event Camera...")
     for evs in mv_iterator:
         event_frame_gen.process_events(evs)
 

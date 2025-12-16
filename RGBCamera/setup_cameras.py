@@ -1,4 +1,4 @@
-def setup_camera(camera, is_left_camera=None):
+def setup_camera(camera):
     #######
     # PTP #
     #######
@@ -20,7 +20,7 @@ def setup_camera(camera, is_left_camera=None):
     # FPS #
     #######
     camera.AcquisitionFrameRateEnable.Value = True
-    camera.AcquisitionFrameRate.Value = 20
+    camera.AcquisitionFrameRate.Value = 10
 
     ############
     # Exposure #
@@ -68,13 +68,8 @@ def setup_camera(camera, is_left_camera=None):
 
     camera.Height.Value = h
 
-    if is_left_camera is not None:
-        if is_left_camera:
-            print("Left camera detected, setting OffsetX to 0")
-            camera.OffsetX.Value = 500
-        else:
-            print("Right camera detected, setting OffsetX to max")
-            camera.OffsetX.Value = 500
+    
+    camera.OffsetX.Value = 500
 
     # camera.BslCenterX.Execute()
     camera.BslCenterY.Execute()
