@@ -53,7 +53,7 @@ def get_data_from_camera(left_camera: bool, path: str):
         sensor_height =        height,
         fps =                  FPS,
         accumulation_time_us = int(ACCUMULATION_MS * 1e3),
-        palette =              ColorPalette.Dark,
+        palette =              ColorPalette.CoolWarm,
     )
     sei = SaveEventImages(
         int(time.time() * 1_000_000),

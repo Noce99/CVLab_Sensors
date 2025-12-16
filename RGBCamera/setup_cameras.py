@@ -1,4 +1,4 @@
-def setup_camera(camera):
+def setup_camera(camera, random=False):
     #######
     # PTP #
     #######

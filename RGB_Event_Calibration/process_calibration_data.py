@@ -5,6 +5,7 @@ from tqdm import tqdm
 import cv2
 import concurrent.futures
 from functools import partial
+import numpy as np
 
 
 PATTERN_SIZE = (9, 6)
@@ -35,13 +36,22 @@ class DataFolder:
         return os.path.join(self.path, f"{timestamp}.png")
 
 def process_event_image(image):
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    r = image[:, :, 0]
+    b = image[:, :, 2]
+    g = image[:, :, 1]
 
-    image[image<40] = 0
-    image[image>=40] = 255
+    image_mono = np.zeros_like(r)
+    print(f"Min r: {r.min()}\tMax r: {r.max()}")
+    print(f"Min b: {b.min()}\tMax b: {b.max()}")
+    print(f"Min g: {g.min()}\tMax g: {g.max()}")
 
-    image = cv2.GaussianBlur(image, (15, 15), 0)
-    return image
+    image_mono[r < 150] = 0
+    image_mono[b < 150] = 0
+
+    cv2.imshow("event_mono", b)
+    cv2.waitKey(1)
+
+    return image_mono
 
 def main():
     calibration_data_path = "./calibration_data"
@@ -61,6 +71,7 @@ def main():
         left_event_df.get_min_timestamp(),
         right_event_df.get_min_timestamp(),
     )
+    starting_timestamp = 1765901164104338  # Manually set
 
     left_rgb_df.discard_previous_to(starting_timestamp)
     right_rgb_df.discard_previous_to(starting_timestamp)
