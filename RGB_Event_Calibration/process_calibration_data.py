@@ -71,7 +71,6 @@ def main():
         left_event_df.get_min_timestamp(),
         right_event_df.get_min_timestamp(),
     )
-    starting_timestamp = 1765901164104338  # Manually set
 
     left_rgb_df.discard_previous_to(starting_timestamp)
     right_rgb_df.discard_previous_to(starting_timestamp)
@@ -129,22 +128,27 @@ def main():
         event_r = cv2.imread(event_r_path)
 
         rgb_l =  cv2.cvtColor(rgb_l, cv2.COLOR_BGR2GRAY)
+        rgb_l = 255 - rgb_l
         rgb_r =  cv2.cvtColor(rgb_r, cv2.COLOR_BGR2GRAY)
-        event_l = process_event_image(event_l)
-        event_r = process_event_image(event_r)
+        rgb_r = 255 - rgb_r
+        # event_l = process_event_image(event_l)
+        # event_r = process_event_image(event_r)
 
-        cv2.imshow("event_l", event_l)
-        cv2.imshow("event_r", event_r)
-        cv2.waitKey(1)
-     
+        # cv2.imshow("event_l", event_l)
+        # cv2.imshow("event_r", event_r)
+        #cv2.waitKey(1)
+
+        flags_events = (cv2.CALIB_CB_ADAPTIVE_THRESH + 
+            cv2.CALIB_CB_NORMALIZE_IMAGE + 
+            cv2.CALIB_CB_FILTER_QUADS)
         cb_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)[0]
         cb_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)[0]
-        cb_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE)[0]
-        cb_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE)[0]
+        cb_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE, flags=flags_events)[0]
+        cb_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE, flags=flags_events)[0]
 
-        print(cb_rgb_l, cb_rgb_r, cb_event_l, cb_event_r)
+        print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
 
-        """
+
         if cb_rgb_l and cb_rgb_r and cb_event_l and cb_event_r:
             subfolder_path = os.path.join(processed_folder_path, f"{i:05d}")
             os.mkdir(subfolder_path)
@@ -155,27 +159,13 @@ def main():
             cv2.imwrite(os.path.join(subfolder_path, "right_event.png"), event_r)
 
             with open(os.path.join(subfolder_path, "log.log"), "w") as f:
+                f.write(f"Reference Timestamp = {timestamp / 1e3:.2f} ms\n")
+                f.write(f"Left RGB = 0.00 ms\n")
                 f.write(f"Right RGB = {diff_rgb_r / 1e3:.2f} ms\n")
                 f.write(f"Left Event = {diff_event_l / 1e3:.2f} ms\n")
                 f.write(f"Right Event = {diff_event_r / 1e3:.2f} ms\n")
 
             i += 1
-        """
-        
-        subfolder_path = os.path.join(processed_folder_path, f"{i:05d}")
-        os.mkdir(subfolder_path)
-
-        cv2.imwrite(os.path.join(subfolder_path, "left_rgb.png"),    rgb_l  )
-        cv2.imwrite(os.path.join(subfolder_path, "right_rgb.png"),   rgb_r  )
-        cv2.imwrite(os.path.join(subfolder_path, "left_event.png"),  event_l)
-        cv2.imwrite(os.path.join(subfolder_path, "right_event.png"), event_r)
-
-        with open(os.path.join(subfolder_path, "log.log"), "w") as f:
-            f.write(f"Right RGB = {diff_rgb_r / 1e3:.2f} ms\n")
-            f.write(f"Left Event = {diff_event_l / 1e3:.2f} ms\n")
-            f.write(f"Right Event = {diff_event_r / 1e3:.2f} ms\n")
-
-        i += 1
     
     print(f"Average dt RGB Right =\t\t\t{total_dt_rgb_r / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
     print(f"Average dt Event Left =\t\t\t{total_dt_event_l / len(left_rgb_df.timestamps) / 1e3:.2f} ms")

@@ -13,7 +13,7 @@ import subprocess
 
 
 def launch_save_images(left_camera: bool, path: str):
-    cmd = ["/home/ubm/CVLab_Sensors/venv_3_12/bin/python", "/home/ubm/CVLab_Sensors/EventCamera/save_images.py", path]
+    cmd = ["/home/ubm/CVLab_Sensors/venv_3_12/bin/python", "/home/ubm/CVLab_Sensors/EventCamera/save_images_no_sign_distintion.py", path]
     if left_camera is False:
         cmd += ["--right-camera"]
 
