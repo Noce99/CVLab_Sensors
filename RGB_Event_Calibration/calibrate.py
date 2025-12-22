@@ -63,63 +63,64 @@ def main():
     all_corners_event_l = []
     all_corners_event_r = []
 
-    for index_folder in tqdm(os.listdir(data_folder)):
-        rgb_l_path   = os.path.join(data_folder, index_folder, "left_rgb.png")
-        rgb_r_path   = os.path.join(data_folder, index_folder, "right_rgb.png")
-        event_l_path = os.path.join(data_folder, index_folder, "left_event.png")
-        event_r_path = os.path.join(data_folder, index_folder, "right_event.png")
+    for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
+        if i > 10 and i < len(os.listdir(data_folder)) - 10:
+            rgb_l_path   = os.path.join(data_folder, index_folder, "left_rgb.png")
+            rgb_r_path   = os.path.join(data_folder, index_folder, "right_rgb.png")
+            event_l_path = os.path.join(data_folder, index_folder, "left_event.png")
+            event_r_path = os.path.join(data_folder, index_folder, "right_event.png")
 
-        rgb_l = cv2.imread(  rgb_l_path,   cv2.IMREAD_GRAYSCALE)
-        rgb_r = cv2.imread(  rgb_r_path,   cv2.IMREAD_GRAYSCALE)
-        event_l = cv2.imread(event_l_path, cv2.IMREAD_GRAYSCALE)
-        event_r = cv2.imread(event_r_path, cv2.IMREAD_GRAYSCALE)
+            rgb_l = cv2.imread(  rgb_l_path,   cv2.IMREAD_GRAYSCALE)
+            rgb_r = cv2.imread(  rgb_r_path,   cv2.IMREAD_GRAYSCALE)
+            event_l = cv2.imread(event_l_path, cv2.IMREAD_GRAYSCALE)
+            event_r = cv2.imread(event_r_path, cv2.IMREAD_GRAYSCALE)
 
-        flags_events = (cv2.CALIB_CB_ADAPTIVE_THRESH + 
-            cv2.CALIB_CB_NORMALIZE_IMAGE + 
-            cv2.CALIB_CB_FILTER_QUADS)
-        cb_rgb_l,   corner_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)
-        cb_rgb_r,   corner_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)
-        cb_event_l, corner_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE, flags=flags_events)
-        cb_event_r, corner_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE, flags=flags_events)
+            flags_events = (cv2.CALIB_CB_ADAPTIVE_THRESH + 
+                cv2.CALIB_CB_NORMALIZE_IMAGE + 
+                cv2.CALIB_CB_FILTER_QUADS)
+            cb_rgb_l,   corner_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)
+            cb_rgb_r,   corner_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)
+            cb_event_l, corner_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE, flags=flags_events)
+            cb_event_r, corner_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE, flags=flags_events)
 
-        if not (cb_rgb_l and cb_rgb_r and cb_event_l and cb_event_r):
-            print(f"WTF not able to process {index_folder}!")
-            print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
-        else:
-            corners_rgb_l_fine = cv2.cornerSubPix(rgb_l, corner_rgb_l, (11,11), (-1,-1), criteria)
-            corners_rgb_r_fine = cv2.cornerSubPix(rgb_r, corner_rgb_r, (11,11), (-1,-1), criteria)
-            corners_event_l_fine = cv2.cornerSubPix(event_l, corner_event_l, (11,11), (-1,-1), criteria)
-            corners_event_r_fine = cv2.cornerSubPix(event_r, corner_event_r, (11,11), (-1,-1), criteria)
+            if not (cb_rgb_l and cb_rgb_r and cb_event_l and cb_event_r):
+                print(f"WTF not able to process {index_folder}!")
+                print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
+            else:
+                corners_rgb_l_fine = cv2.cornerSubPix(rgb_l, corner_rgb_l, (11,11), (-1,-1), criteria)
+                corners_rgb_r_fine = cv2.cornerSubPix(rgb_r, corner_rgb_r, (11,11), (-1,-1), criteria)
+                corners_event_l_fine = cv2.cornerSubPix(event_l, corner_event_l, (11,11), (-1,-1), criteria)
+                corners_event_r_fine = cv2.cornerSubPix(event_r, corner_event_r, (11,11), (-1,-1), criteria)
 
-            corners_rgb_l_fine   = corners_rgb_l_fine.reshape(-1, 2)
-            corners_rgb_r_fine   = corners_rgb_r_fine.reshape(-1, 2)
-            corners_event_l_fine = corners_event_l_fine.reshape(-1, 2)
-            corners_event_r_fine = corners_event_r_fine.reshape(-1, 2)
+                corners_rgb_l_fine   = corners_rgb_l_fine.reshape(-1, 2)
+                corners_rgb_r_fine   = corners_rgb_r_fine.reshape(-1, 2)
+                corners_event_l_fine = corners_event_l_fine.reshape(-1, 2)
+                corners_event_r_fine = corners_event_r_fine.reshape(-1, 2)
 
-            # Save chessboard images with drawn corners
-            rgb_l_3_channels = cv2.cvtColor(rgb_l, cv2.COLOR_GRAY2BGR)
-            rgb_r_3_channels = cv2.cvtColor(rgb_r, cv2.COLOR_GRAY2BGR)
-            event_l_3_channels = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
-            event_r_3_channels = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
-            rgb_l_corners_img = cv2.drawChessboardCorners(rgb_l_3_channels, PATTERN_SIZE, corners_rgb_l_fine, True)
-            rgb_r_corners_img = cv2.drawChessboardCorners(rgb_r_3_channels, PATTERN_SIZE, corners_rgb_r_fine, True)
-            event_l_corners_img = cv2.drawChessboardCorners(event_l_3_channels, PATTERN_SIZE, corners_event_l_fine, True)
-            event_r_corners_img = cv2.drawChessboardCorners(event_r_3_channels, PATTERN_SIZE, corners_event_r_fine, True)
+                # Save chessboard images with drawn corners
+                rgb_l_3_channels = cv2.cvtColor(rgb_l, cv2.COLOR_GRAY2BGR)
+                rgb_r_3_channels = cv2.cvtColor(rgb_r, cv2.COLOR_GRAY2BGR)
+                event_l_3_channels = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
+                event_r_3_channels = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
+                rgb_l_corners_img = cv2.drawChessboardCorners(rgb_l_3_channels, PATTERN_SIZE, corners_rgb_l_fine, True)
+                rgb_r_corners_img = cv2.drawChessboardCorners(rgb_r_3_channels, PATTERN_SIZE, corners_rgb_r_fine, True)
+                event_l_corners_img = cv2.drawChessboardCorners(event_l_3_channels, PATTERN_SIZE, corners_event_l_fine, True)
+                event_r_corners_img = cv2.drawChessboardCorners(event_r_3_channels, PATTERN_SIZE, corners_event_r_fine, True)
 
-            drawChessboardCorners_path = os.path.join(chessboards_calib_results, index_folder)
-            os.mkdir(drawChessboardCorners_path)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_left_corners.png"), rgb_l_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_right_corners.png"), rgb_r_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_left_corners.png"), event_l_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_right_corners.png"), event_r_corners_img)
+                drawChessboardCorners_path = os.path.join(chessboards_calib_results, index_folder)
+                os.mkdir(drawChessboardCorners_path)
+                cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_left_corners.png"), rgb_l_corners_img)
+                cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_right_corners.png"), rgb_r_corners_img)
+                cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_left_corners.png"), event_l_corners_img)
+                cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_right_corners.png"), event_r_corners_img)
 
-            all_corners_rgb_l.append(corners_rgb_l_fine)
-            all_corners_rgb_r.append(corners_rgb_r_fine)
-            all_corners_event_l.append(corners_event_l_fine)
-            all_corners_event_r.append(corners_event_r_fine)
-            
-            """if len(all_corners_rgb_l) > 30:
-                break"""
+                all_corners_rgb_l.append(corners_rgb_l_fine)
+                all_corners_rgb_r.append(corners_rgb_r_fine)
+                all_corners_event_l.append(corners_event_l_fine)
+                all_corners_event_r.append(corners_event_r_fine)
+                
+                """if len(all_corners_rgb_l) > 0:
+                    break"""
 
     print(f"Let's Calibrate!")
 

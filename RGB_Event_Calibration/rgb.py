@@ -16,16 +16,18 @@ RIGHT_SERIAL = "40665216"
 class RGBSaveStereoImages:
     def __init__(self, path_left, path_right):
         cameras = pylon.InstantCameraArray(2) # 0 -> left, 1 --> right
+        self.info = {"getting_data": False}
         self.camera_thread = \
             threading.Thread(
                 target=RGBSaveStereoImages.save_data,
-                args = (cameras, path_left, path_right),
+                args = (cameras, path_left, path_right, self.info),
                 daemon=True,
             )
-        self.camera_thread.start()        
+        self.camera_thread.start()     
+
 
     @staticmethod
-    def save_data(cameras, path_left, path_right):
+    def save_data(cameras, path_left, path_right, info):
         tlFactory = pylon.TlFactory.GetInstance()
         left_camera_found = False
         right_camera_found = False
@@ -58,6 +60,7 @@ class RGBSaveStereoImages:
             time.sleep(0.1)
 
         print(f"Starting taking data from Left and Right RGB cameras...")
+        info["getting_data"] = True
 
         cameras.StartGrabbing()
 

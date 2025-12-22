@@ -3,6 +3,7 @@ from datetime import datetime
 
 from rgb import RGBSaveStereoImages
 from event import EventSaveStereoImages
+import time
 
 
 def main():
@@ -26,6 +27,9 @@ def main():
         left_rgb_folder,
         right_rgb_folder,
     )
+
+    while not rgb.info["getting_data"]:
+        time.sleep(0.1)
 
     event = EventSaveStereoImages(
         left_event_folder,

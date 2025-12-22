@@ -128,9 +128,9 @@ def main():
         event_r = cv2.imread(event_r_path)
 
         rgb_l =  cv2.cvtColor(rgb_l, cv2.COLOR_BGR2GRAY)
-        rgb_l = 255 - rgb_l
+        # rgb_l = 255 - rgb_l
         rgb_r =  cv2.cvtColor(rgb_r, cv2.COLOR_BGR2GRAY)
-        rgb_r = 255 - rgb_r
+        # rgb_r = 255 - rgb_r
         # event_l = process_event_image(event_l)
         # event_r = process_event_image(event_r)
 

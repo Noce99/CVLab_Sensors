@@ -6,4 +6,5 @@ LivoxLidar/get_data_from_hap
 calibration_data/
 processed_data/
 calibration_results/
+calibration_data_events/
 venv
