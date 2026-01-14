@@ -89,10 +89,10 @@ def main():
     left_event_df.discard_after_to(ending_timestamp)
     right_event_df.discard_after_to(ending_timestamp)
 
-    print(f"Calibration data ranges from {datetime.fromtimestamp(starting_timestamp / 1e6)} to {datetime.fromtimestamp(ending_timestamp / 1e6)}!")
+    print(f"Calibration data ranges from:\n{datetime.fromtimestamp(starting_timestamp / 1e6)}\nto\n{datetime.fromtimestamp(ending_timestamp / 1e6)}")
     print(f"Total of:")
-    print(f"Left RGB = {len(left_rgb_df.timestamps)}\t\tRight RGB = {len(right_rgb_df.timestamps)}")
-    print(f"Left Event = {len(left_event_df.timestamps)}\t\tRight Event = {len(right_event_df.timestamps)}")
+    print(f"\tLeft RGB = {len(left_rgb_df.timestamps)}\n\tRight RGB = {len(right_rgb_df.timestamps)}")
+    print(f"\tLeft Event = {len(left_event_df.timestamps)}\n\tRight Event = {len(right_event_df.timestamps)}")
 
     processed_data_path = "./processed_data"
     if not os.path.exists(processed_data_path):
@@ -107,7 +107,14 @@ def main():
     total_dt_rgb_r = 0
     total_dt_event_l = 0
     total_dt_event_r = 0
-    for timestamp in tqdm(left_rgb_df.timestamps):
+
+    counter_rgb_l = 0
+    counter_rgb_r = 0
+    counter_event_l = 0
+    counter_event_r = 0
+    counter_all = 0
+
+    for timestamp in tqdm(left_rgb_df.timestamps, desc="Searching Chessboards in time aligned frames!"):
         rgb_l_path = left_rgb_df.file_from_timestamp(timestamp)
 
         closer_t_rgb_r, diff_rgb_r = right_rgb_df.get_closer_timestamp(timestamp)
@@ -128,28 +135,35 @@ def main():
         event_r = cv2.imread(event_r_path)
 
         rgb_l =  cv2.cvtColor(rgb_l, cv2.COLOR_BGR2GRAY)
-        # rgb_l = 255 - rgb_l
         rgb_r =  cv2.cvtColor(rgb_r, cv2.COLOR_BGR2GRAY)
-        # rgb_r = 255 - rgb_r
-        # event_l = process_event_image(event_l)
-        # event_r = process_event_image(event_r)
 
-        # cv2.imshow("event_l", event_l)
-        # cv2.imshow("event_r", event_r)
-        #cv2.waitKey(1)
+        # rgb_l = cv2.GaussianBlur(rgb_l, (5,5), 0)
+        # rgb_r = cv2.GaussianBlur(rgb_r, (5,5), 0)
+
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(20,20))
+        # rgb_l = clahe.apply(rgb_l)
+        # rgb_r = clahe.apply(rgb_r)
 
         flags_events = (cv2.CALIB_CB_ADAPTIVE_THRESH + 
             cv2.CALIB_CB_NORMALIZE_IMAGE + 
             cv2.CALIB_CB_FILTER_QUADS)
-        cb_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)[0]
-        cb_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)[0]
+        # cb_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)[0]
+        # cb_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)[0]
+        cb_rgb_l   = cv2.findChessboardCornersSB(rgb_l, PATTERN_SIZE, flags=0)[0]
+        cb_rgb_r   = cv2.findChessboardCornersSB(rgb_r, PATTERN_SIZE, flags=0)[0]
+
         cb_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE, flags=flags_events)[0]
         cb_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE, flags=flags_events)[0]
 
-        print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
+        # print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
 
+        counter_rgb_l += cb_rgb_l
+        counter_rgb_r += cb_rgb_r
+        counter_event_l += cb_event_l
+        counter_event_r += cb_event_r
 
         if cb_rgb_l and cb_rgb_r and cb_event_l and cb_event_r:
+            counter_all += 1
             subfolder_path = os.path.join(processed_folder_path, f"{i:05d}")
             os.mkdir(subfolder_path)
 
@@ -167,9 +181,17 @@ def main():
 
             i += 1
     
-    print(f"Average dt RGB Right =\t\t\t{total_dt_rgb_r / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
-    print(f"Average dt Event Left =\t\t\t{total_dt_event_l / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
-    print(f"Average dt Event Right =\t\t{total_dt_event_r / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
+    print("Chessboard Searching Log:")
+    print(f"\tRGB Left =    {counter_rgb_l}")
+    print(f"\tRGB Right =   {counter_rgb_r}")
+    print(f"\tEvent Left =  {counter_event_l}")
+    print(f"\tEvent Right = {counter_event_r}")
+    print(f"\tAll simultaneously = {counter_all}")
+
+    print("Time distanses from RGB Left:")
+    print(f"\tAverage dt RGB Right =\t\t\t{total_dt_rgb_r / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
+    print(f"\tAverage dt Event Left =\t\t\t{total_dt_event_l / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
+    print(f"\tAverage dt Event Right =\t\t{total_dt_event_r / len(left_rgb_df.timestamps) / 1e3:.2f} ms")
 
 
 
