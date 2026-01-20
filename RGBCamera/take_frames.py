@@ -9,7 +9,7 @@ import sys
 import time
 import cv2
 
-from setup_cameras import setup_camera
+from setup_stereo_cameras import setup_stereo_camera
 
 # Number of images to be grabbed.
 countOfImagesToGrab = 10000
@@ -34,7 +34,7 @@ for i, camera in enumerate(cameras):
     # Print the serial of the camera.
     print("Using device ", camera.GetDeviceInfo().GetSerialNumber())
     
-    setup_camera(camera)
+    setup_stereo_camera(camera)
 
 check_iterations = 0
 while True:

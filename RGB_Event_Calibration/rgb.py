@@ -7,7 +7,7 @@ from pypylon import pylon
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from RGBCamera.setup_cameras import setup_camera
+from RGBCamera.setup_stereo_cameras import setup_stereo_cameras
 
 
 LEFT_SERIAL = "40663113"
@@ -37,12 +37,12 @@ class RGBSaveStereoImages:
                 if d.GetSerialNumber() == LEFT_SERIAL:
                     cameras[0].Attach(tlFactory.CreateDevice(d))
                     cameras[0].Open()
-                    setup_camera(cameras[0])
+                    setup_stereo_camera(cameras[0])
                     left_camera_found = True
                 elif d.GetSerialNumber() == RIGHT_SERIAL:
                     cameras[1].Attach(tlFactory.CreateDevice(d))
                     cameras[1].Open()
-                    setup_camera(cameras[1])
+                    setup_stereo_camera(cameras[1])
                     right_camera_found = True
                 else:
                     print(f"Uknown camera with serial: {d.GetSerialNumber()}")

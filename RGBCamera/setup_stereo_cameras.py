@@ -1,4 +1,4 @@
-def setup_camera(camera, random=False):
+def setup_stereo_camera(camera, random=False):
     #######
     # PTP #
     #######

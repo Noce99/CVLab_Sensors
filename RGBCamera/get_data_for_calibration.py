@@ -10,7 +10,7 @@ import time
 import cv2
 from datetime import datetime
 
-from setup_cameras import setup_camera
+from setup_stereo_cameras import setup_stereo_camera
 
 
 def main():
@@ -65,7 +65,7 @@ def main():
 
         camera_serials[i] = camera.GetDeviceInfo().GetSerialNumber()
         
-        setup_camera(camera, left_camera[camera_serials[i]])
+        setup_stereo_camera(camera, left_camera[camera_serials[i]])
 
     check_iterations = 0
     while True:

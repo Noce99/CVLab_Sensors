@@ -9,7 +9,7 @@ from datetime import datetime
 from pypylon import genicam
 from pypylon import pylon
 from utils import Section, resize_with_aspect_ratio
-from RGBCamera.setup_cameras import setup_camera
+from RGBCamera.setup_stereo_cameras import setup_stereo_camera
 
 
 LEFT_SERIAL = "40663113"
@@ -82,12 +82,12 @@ class RGBSection(Section):
                 if d.GetSerialNumber() == LEFT_SERIAL:
                     cameras[0].Attach(tlFactory.CreateDevice(d))
                     cameras[0].Open()
-                    setup_camera(cameras[0], False)
+                    setup_stereo_camera(cameras[0], False)
                     info["left_camera_found"] = True
                 elif d.GetSerialNumber() == RIGHT_SERIAL:
                     cameras[1].Attach(tlFactory.CreateDevice(d))
                     cameras[1].Open()
-                    setup_camera(cameras[1], True)
+                    setup_stereo_camera(cameras[1], True)
                     info["right_camera_found"] = True
                 else:
                     print(f"Uknown camera with serial: {d.GetSerialNumber()}")
