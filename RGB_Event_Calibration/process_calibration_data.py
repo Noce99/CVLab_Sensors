@@ -60,6 +60,8 @@ def main():
 
     folder = folders[-1]
 
+    print("Processing folder:", folder)
+
     left_rgb_df    = DataFolder(os.path.join(calibration_data_path, folder, "left_rgb"))
     right_rgb_df   = DataFolder(os.path.join(calibration_data_path, folder, "right_rgb"))
     left_event_df  = DataFolder(os.path.join(calibration_data_path, folder, "left_event"))
@@ -149,6 +151,16 @@ def main():
             cv2.CALIB_CB_FILTER_QUADS)
         # cb_rgb_l   = cv2.findChessboardCorners(rgb_l,   PATTERN_SIZE)[0]
         # cb_rgb_r   = cv2.findChessboardCorners(rgb_r,   PATTERN_SIZE)[0]
+        cv2.imshow("Edit 1 Left", rgb_l)
+        cv2.imshow("Edit 1 Right", rgb_r)
+        
+        # _, rgb_l = cv2.threshold(rgb_l, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # _, rgb_r = cv2.threshold(rgb_r, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        cv2.imshow("Edit 2 Left", rgb_l)
+        cv2.imshow("Edit 2 Right", rgb_r)
+        cv2.waitKey(1)
+
         cb_rgb_l   = cv2.findChessboardCornersSB(rgb_l, PATTERN_SIZE, flags=0)[0]
         cb_rgb_r   = cv2.findChessboardCornersSB(rgb_r, PATTERN_SIZE, flags=0)[0]
 

@@ -80,4 +80,6 @@ class RGBSaveStereoImages:
                 timestamp = grabResult.GetTimeStamp()
                 path_to_save = os.path.join(folder_path[cameraContextValue], f"{int(timestamp / 1e3)}.png")
                 cv2.imwrite(path_to_save, grabResult.GetArray())
+                # cv2.imshow(f"Camera {cameraContextValue}", grabResult.GetArray())
+                # cv2.waitKey(1)
  

@@ -26,8 +26,8 @@ def setup_camera(camera, random=False):
     # Exposure #
     ############
     camera.ExposureAuto.Value = "Continuous"
-    camera.AutoExposureTimeLowerLimit.Value = 1.0
-    camera.AutoExposureTimeUpperLimit.Value = 100000.0
+    camera.AutoExposureTimeLowerLimit.Value = 1000.0
+    camera.AutoExposureTimeUpperLimit.Value = 5000.0
 
     ########
     # Gain #
@@ -45,7 +45,7 @@ def setup_camera(camera, random=False):
     ##########
     # Colors #
     ##########
-    camera.PixelFormat.Value = "RGB8"
+    camera.PixelFormat.Value = "Mono8"
     """
     Mono8, Mono10, Mono10p, Mono12, Mono12p, RGB8, BGR8 ...
     """
@@ -54,7 +54,7 @@ def setup_camera(camera, random=False):
     # Spatial Size #
     ################
     w = int(2448 * 0.5)     # 2448
-    h = int(2048  * 0.2)     # 2048
+    h = int(2048  * 0.4)     # 2048
 
     offset = 150
 

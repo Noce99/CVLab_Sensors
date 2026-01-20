@@ -13,7 +13,7 @@ import numpy as np
 import time
 
 
-ACCUMULATION_MS = 60 # 100
+ACCUMULATION_MS = 100 # 100
 SATURATION = int(60 * ACCUMULATION_MS / 100)
 
 class SaveEventImages:
@@ -83,15 +83,15 @@ def get_data_from_camera(left_camera: bool, path: str):
         if (activation_of_the_scene > 0.1):
             # images_to_write.append(to_write)
             edit = to_write
-            """cv2.imshow("Edit1", edit)
+            # cv2.imshow("Edit1", edit)
             edit = 255 - edit
-            cv2.imshow("Edit2", edit)
+            # cv2.imshow("Edit2", edit)
             edit = cv2.morphologyEx(edit, cv2.MORPH_CLOSE, kernel)
-            cv2.imshow("Edit3", edit)
-            edit[edit==255] = 0
-            cv2.imshow("Edit4", edit)
+            # cv2.imshow("Edit3", edit)
+            _, edit = cv2.threshold(edit, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # cv2.imshow("Edit4", edit)
 
-            cv2.waitKey(10)"""
+            # cv2.waitKey(10)
 
             """PATTERN_SIZE = (9, 6)
             flags = (cv2.CALIB_CB_ADAPTIVE_THRESH + 

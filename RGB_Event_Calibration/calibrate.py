@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation
 
 
 PATTERN_SIZE = (9, 6)
-SIDE_SIZE_CM = 2.93
+SIDE_SIZE_CM = 3.0
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
