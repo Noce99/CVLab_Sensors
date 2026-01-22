@@ -10,6 +10,8 @@ from typing import List, Tuple
 
 from scipy.spatial.transform import Rotation
 
+from process_calibration_data import adjust_gamma
+from warp import undistort, compute_homography, warp_image
 
 
 PATTERN_SIZE = (9, 6)
@@ -82,7 +84,7 @@ class CornerSelector:
                 self.corners_rgb_r.append(c_rgb_r)
                 self.corners_event_l.append(c_event_l)
                 self.corners_event_r.append(c_event_r)
-            print(f"Min Diff = {min_diffs}  [{self.accepted_corners}]")
+            # print(f"Min Diff = {min_diffs}  [{self.accepted_corners}]")
 
 
 def main():
@@ -110,61 +112,22 @@ def main():
     cs = CornerSelector(px_threshold=10)
 
     for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
-        rgb_l_path   = os.path.join(data_folder, index_folder, "left_rgb.png")
-        rgb_r_path   = os.path.join(data_folder, index_folder, "right_rgb.png")
-        event_l_path = os.path.join(data_folder, index_folder, "left_event.png")
-        event_r_path = os.path.join(data_folder, index_folder, "right_event.png")
+        rgb_l_corners_path   = os.path.join(data_folder, index_folder, "left_rgb_corners.npy")
+        rgb_r_corners_path   = os.path.join(data_folder, index_folder, "right_rgb_corners.npy")
+        event_l_corners_path = os.path.join(data_folder, index_folder, "left_event_corners.npy")
+        event_r_corners_path = os.path.join(data_folder, index_folder, "right_event_corners.npy")
 
-        rgb_l = cv2.imread(  rgb_l_path,   cv2.IMREAD_GRAYSCALE)
-        rgb_r = cv2.imread(  rgb_r_path,   cv2.IMREAD_GRAYSCALE)
-        event_l = cv2.imread(event_l_path, cv2.IMREAD_GRAYSCALE)
-        event_r = cv2.imread(event_r_path, cv2.IMREAD_GRAYSCALE)
+        corners_rgb_l_fine   = np.load(rgb_l_corners_path)
+        corners_rgb_r_fine   = np.load(rgb_r_corners_path)
+        corners_event_l_fine = np.load(event_l_corners_path)[::-1]
+        corners_event_r_fine = np.load(event_r_corners_path)[::-1]
 
-        flags_events = (cv2.CALIB_CB_ADAPTIVE_THRESH + 
-            cv2.CALIB_CB_NORMALIZE_IMAGE + 
-            cv2.CALIB_CB_FILTER_QUADS)
-        cb_rgb_l,   corner_rgb_l   = cv2.findChessboardCornersSB(rgb_l, PATTERN_SIZE, flags=0)
-        cb_rgb_r,   corner_rgb_r   = cv2.findChessboardCornersSB(rgb_r, PATTERN_SIZE, flags=0)
-        cb_event_l, corner_event_l = cv2.findChessboardCorners(event_l, PATTERN_SIZE, flags=flags_events)
-        cb_event_r, corner_event_r = cv2.findChessboardCorners(event_r, PATTERN_SIZE, flags=flags_events)
-
-        if not (cb_rgb_l and cb_rgb_r and cb_event_l and cb_event_r):
-            print(f"WTF not able to process {index_folder}!")
-            print(f"RGB_left =\t\t{cb_rgb_l}\nRGB_right =\t\t{cb_rgb_r}\nEvent_left =\t\t{cb_event_l}\nEvent_right =\t\t{cb_event_r}")
-        else:
-            corners_rgb_l_fine = cv2.cornerSubPix(rgb_l, corner_rgb_l, (11,11), (-1,-1), criteria)
-            corners_rgb_r_fine = cv2.cornerSubPix(rgb_r, corner_rgb_r, (11,11), (-1,-1), criteria)
-            corners_event_l_fine = cv2.cornerSubPix(event_l, corner_event_l, (11,11), (-1,-1), criteria)
-            corners_event_r_fine = cv2.cornerSubPix(event_r, corner_event_r, (11,11), (-1,-1), criteria)
-
-            corners_rgb_l_fine   = corners_rgb_l_fine.reshape(-1, 2)
-            corners_rgb_r_fine   = corners_rgb_r_fine.reshape(-1, 2)
-            corners_event_l_fine = corners_event_l_fine.reshape(-1, 2)
-            corners_event_r_fine = corners_event_r_fine.reshape(-1, 2)
-
-            # Save chessboard images with drawn corners
-            rgb_l_3_channels = cv2.cvtColor(rgb_l, cv2.COLOR_GRAY2BGR)
-            rgb_r_3_channels = cv2.cvtColor(rgb_r, cv2.COLOR_GRAY2BGR)
-            event_l_3_channels = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
-            event_r_3_channels = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
-            rgb_l_corners_img = cv2.drawChessboardCorners(rgb_l_3_channels, PATTERN_SIZE, corners_rgb_l_fine, True)
-            rgb_r_corners_img = cv2.drawChessboardCorners(rgb_r_3_channels, PATTERN_SIZE, corners_rgb_r_fine, True)
-            event_l_corners_img = cv2.drawChessboardCorners(event_l_3_channels, PATTERN_SIZE, corners_event_l_fine, True)
-            event_r_corners_img = cv2.drawChessboardCorners(event_r_3_channels, PATTERN_SIZE, corners_event_r_fine, True)
-
-            drawChessboardCorners_path = os.path.join(chessboards_calib_results, index_folder)
-            os.mkdir(drawChessboardCorners_path)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_left_corners.png"), rgb_l_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "rgb_right_corners.png"), rgb_r_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_left_corners.png"), event_l_corners_img)
-            cv2.imwrite(os.path.join(drawChessboardCorners_path, "event_right_corners.png"), event_r_corners_img)
-
-            cs.add_corners(
-                corners_rgb_l_fine,
-                corners_rgb_r_fine,
-                corners_event_l_fine,
-                corners_event_r_fine,
-            )
+        cs.add_corners(
+            corners_rgb_l_fine,
+            corners_rgb_r_fine,
+            corners_event_l_fine,
+            corners_event_r_fine,
+        )
             
 
     print(f"I have detected the following chessboards:")
@@ -175,10 +138,10 @@ def main():
     print(f"Let's Calibrate!")
 
     index_folder = os.listdir(data_folder)[0]
-    rgb_l_path   = os.path.join(data_folder, index_folder, "left_rgb.png")
-    rgb_r_path   = os.path.join(data_folder, index_folder, "right_rgb.png")
-    event_l_path = os.path.join(data_folder, index_folder, "left_event.png")
-    event_r_path = os.path.join(data_folder, index_folder, "right_event.png")
+    rgb_l_path   = os.path.join(data_folder, index_folder, "rgb_left_corners.png")
+    rgb_r_path   = os.path.join(data_folder, index_folder, "rgb_right_corners.png")
+    event_l_path = os.path.join(data_folder, index_folder, "event_left_corners.png")
+    event_r_path = os.path.join(data_folder, index_folder, "event_right_corners.png")
 
     rgb_l = cv2.imread(  rgb_l_path,   cv2.IMREAD_GRAYSCALE)
     rgb_r = cv2.imread(  rgb_r_path,   cv2.IMREAD_GRAYSCALE)
@@ -199,6 +162,8 @@ def main():
     pattern_points *= SIDE_SIZE_CM
     pattern_points_repeated = [pattern_points] * len(cs.corners_rgb_l)
 
+    # Left Rgb anf Right Rgb Stereo Calibrate
+
     err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
         pattern_points_repeated, cs.corners_rgb_l, cs.corners_rgb_r, None, None, None, None, rgb_image_size, flags=0)
     
@@ -210,6 +175,9 @@ def main():
     rgb_D_right = Dr
 
     print(f"RGB Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
+    print(f"RGB T = {T.flatten()}")
+
+    # Left Event and Right Event Stereo Calibrate
 
     err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
         pattern_points_repeated, cs.corners_event_l, cs.corners_event_r, None, None, None, None, event_image_size, flags=0)
@@ -222,10 +190,28 @@ def main():
     event_D_right = Dr
 
     print(f"Event Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
+    print(f"Event T = {T.flatten()}")
+
+    # Left Rgb and Left Event Stereo Calibrate
+
+    rgb_event_K_left = rgb_K_left.copy()
+    rgb_event_D_left = rgb_D_left.copy()
+    rgb_event_K_right = event_K_right.copy()
+    rgb_event_D_right = event_D_right.copy()
+
+    err, _, _, _, _, R, T, E, F = cv2.stereoCalibrate(
+        pattern_points_repeated, cs.corners_rgb_l, cs.corners_event_l, rgb_event_K_left, rgb_event_D_left, rgb_event_K_right, rgb_event_D_right, rgb_image_size, flags=0)
+
+    rgb_event_T = T
+    rgb_event_R = R
+
+    print(f"RGB-Event Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
+    print(f"RGB-Event T = {rgb_event_T.flatten()}")
+
 
     # Let's Rectify RGB
     R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        rgb_K_left, rgb_D_left, rgb_K_right, rgb_D_right, rgb_image_size, rgb_R, rgb_T, alpha=0.9
+        rgb_K_left, rgb_D_left, rgb_K_right, rgb_D_right, rgb_image_size, rgb_R, rgb_T, alpha=-1
     )
     rgb_l_map1, rgb_l_map2 = cv2.initUndistortRectifyMap(
         rgb_K_left, rgb_D_left, R1, P1, rgb_image_size, cv2.CV_16SC2
@@ -239,7 +225,7 @@ def main():
 
     # Let's Rectify Event
     R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        event_K_left, event_D_left, event_K_right, event_D_right, event_image_size, event_R, event_T, alpha=0.9
+        event_K_left, event_D_left, event_K_right, event_D_right, event_image_size, event_R, event_T, alpha=-1
     )
     event_l_map1, event_l_map2 = cv2.initUndistortRectifyMap(
         event_K_left, event_D_left, R1, P1, event_image_size, cv2.CV_16SC2
@@ -251,6 +237,20 @@ def main():
     event_l_rect, event_r_rect, comparison = test_rectification(event_l, event_r, event_l_map1, event_l_map2, event_r_map1, event_r_map2)
     cv2.imwrite(os.path.join(current_folder_calib_results, "event_rectification_test.png"), comparison)
 
+    # Let's Rectify RGB-Event
+    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
+        rgb_K_left, rgb_D_left, event_K_left, event_D_left, rgb_image_size, rgb_event_R, rgb_event_T, alpha=-1, 
+    )
+    rgb_event_l_map1, rgb_event_l_map2 = cv2.initUndistortRectifyMap(
+        rgb_K_left, rgb_D_left, R1, P1, rgb_image_size, cv2.CV_16SC2
+    )
+    rgb_event_r_map1, rgb_event_r_map2 = cv2.initUndistortRectifyMap(
+        event_K_left, event_D_left, R2, P2, rgb_image_size, cv2.CV_16SC2
+    )
+
+    rgb_event_l_rect, rgb_event_r_rect, comparison = test_rectification(rgb_l, event_l, rgb_event_l_map1, rgb_event_l_map2, rgb_event_r_map1, rgb_event_r_map2)
+    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_rectification_test.png"), comparison)
+
     # TODO: Rectification between everything and RGB Left
 
     print(f"RGB T = {rgb_T}")
@@ -260,12 +260,15 @@ def main():
     T_event_to_pattern = []
 
     for corner_rgb_l, corner_event_l in tqdm(zip(cs.corners_rgb_l, cs.corners_event_l), total=len(cs.corners_rgb_l)):
-
+        
+        # There we compute the rotation and translation from the pattern to the camera
+        # Where patterns points are in the pattern coordinate system (3D points in real world space)
+        # and corners are the detected 2D points in the image
         rgb_success, rgb_rvec, rgb_tvec = cv2.solvePnP(
-            pattern_points,
-            corner_rgb_l,
-            rgb_K_left,
-            rgb_D_left,
+            pattern_points, # shape (N, 3)
+            corner_rgb_l,   # shape (N, 2)
+            rgb_K_left,     # shape (3, 3) Camera Matrix
+            rgb_D_left,     # shape (1, 5) or (1, 8) Distortion Coefficients
             flags=cv2.SOLVEPNP_ITERATIVE
         )
 
@@ -283,7 +286,7 @@ def main():
             R_event, _ = cv2.Rodrigues(event_rvec)
             t_event    = event_tvec.flatten()
 
-            T_rgb = np.eye(4)
+            T_rgb = np.eye(4) 
             T_rgb[:3, :3] = R_rgb
             T_rgb[:3, 3] = t_rgb
             
@@ -293,6 +296,19 @@ def main():
             
             T_rgb_to_pattern.append(T_rgb)
             T_event_to_pattern.append(T_event)
+
+            # Debug: Check the first pattern point reprojection
+            first_pattern_point = pattern_points[0, :]
+            homogeneous_first_pattern_point = np.ones((4, 1))
+            homogeneous_first_pattern_point[:3, 0] = first_pattern_point
+
+            l_rgb_rs = T_rgb @ homogeneous_first_pattern_point
+            # print(f"First Pattern Point in Left RGB Camera Reference System:\n{l_rgb_rs}")
+
+            l_event_rs = T_event @ homogeneous_first_pattern_point
+            # print(f"First Pattern Point in Left Event Camera Reference System:\n{l_event_rs}")
+            diff = (l_rgb_rs - l_event_rs).flatten()[:3]
+            # print(f"DIFF = {diff}")
         else:
             print("WTF PnP failed!")
 
@@ -310,7 +326,49 @@ def main():
     t_mean = np.mean(translations, axis=0)
 
     print(f"T RGB_to_Event = {t_mean}")
-    print(f"R RGB_to_Event = {R_mean}")
+    print(f"R RGB_to_Event = {R_mean}") 
+
+
+    # Let's warp event on rgb:
+
+    h, w = rgb_l.shape[:2]
+
+    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
+        rgb_event_K_left,  rgb_event_D_left,
+        rgb_event_K_right, rgb_event_D_right,
+        (w, h),
+        rgb_event_R,
+        rgb_event_T,
+        flags=cv2.CALIB_ZERO_DISPARITY,
+        alpha=-1
+    )
+
+    map1_l, map2_l = cv2.initUndistortRectifyMap(
+        rgb_event_K_left, rgb_event_D_left,
+        R1, P1,
+        (w, h),
+        cv2.CV_32FC1
+    )
+
+    map1_r, map2_r = cv2.initUndistortRectifyMap(
+        rgb_event_K_right, rgb_event_D_right,
+        R2, P2,
+        (w, h),
+        cv2.CV_32FC1
+    )
+
+    rect_left  = cv2.remap(rgb_l,   map1_l, map2_l, cv2.INTER_LINEAR)
+    rect_right = cv2.remap(event_l, map1_r, map2_r, cv2.INTER_LINEAR)
+
+    overlay = cv2.addWeighted(rect_left, 0.5, rect_right, 0.5, 0)
+
+    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_overlay.png"), overlay)
+
+    # Stack rect_left (top) and rect_right (bottom), save and display
+    vertical_stack = np.vstack((rect_left, rect_right))
+    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_vertical_stack.png"), vertical_stack)
+
+
 
 
 if __name__ == "__main__":

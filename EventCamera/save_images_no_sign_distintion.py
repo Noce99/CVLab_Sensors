@@ -13,7 +13,7 @@ import numpy as np
 import time
 
 
-ACCUMULATION_MS = 100 # 100
+ACCUMULATION_MS = 60 # 100
 SATURATION = int(60 * ACCUMULATION_MS / 100)
 
 class SaveEventImages:
@@ -43,7 +43,7 @@ def get_data_from_camera(left_camera: bool, path: str):
                 print(f"DONE RIGHT!")"""
             break
         except Exception as e:
-            print(f"Error initiating Event device {serial}: {e}. Retrying...")
+            print(f"Error initiating Event device {serial}: {e}. Retrying... [{time.time()}]")
             pass
 
     mv_iterator = EventsIterator.from_device(
@@ -71,6 +71,12 @@ def get_data_from_camera(left_camera: bool, path: str):
     kernel = np.ones((5, 5), np.uint8)
 
     for evs in mv_iterator:
+        if evs.shape[0] == 0:
+            if left_camera:
+                print("No events in left_camera, skipping...")
+            else:
+                print("No events in right_camera, skipping...")
+            continue
         histo = histo_processor.init_output_tensor()
         histo_processor.process_events(
             cur_frame_start_ts = evs[0][3],
@@ -88,7 +94,8 @@ def get_data_from_camera(left_camera: bool, path: str):
             # cv2.imshow("Edit2", edit)
             edit = cv2.morphologyEx(edit, cv2.MORPH_CLOSE, kernel)
             # cv2.imshow("Edit3", edit)
-            _, edit = cv2.threshold(edit, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # To binaryze the image uncomment the following line
+            # _, edit = cv2.threshold(edit, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             # cv2.imshow("Edit4", edit)
 
             # cv2.waitKey(10)

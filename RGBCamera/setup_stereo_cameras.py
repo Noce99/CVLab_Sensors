@@ -1,4 +1,4 @@
-def setup_stereo_camera(camera, random=False):
+def setup_stereo_cameras(camera, random=False):
     #######
     # PTP #
     #######
@@ -26,8 +26,8 @@ def setup_stereo_camera(camera, random=False):
     # Exposure #
     ############
     camera.ExposureAuto.Value = "Continuous"
-    camera.AutoExposureTimeLowerLimit.Value = 1000.0
-    camera.AutoExposureTimeUpperLimit.Value = 5000.0
+    camera.AutoExposureTimeLowerLimit.Value = 50000.0  # us
+    camera.AutoExposureTimeUpperLimit.Value = 100000.0 # us
 
     ########
     # Gain #
@@ -56,7 +56,6 @@ def setup_stereo_camera(camera, random=False):
     w = int(2448 * 0.5)     # 2448
     h = int(2048  * 0.4)     # 2048
 
-    offset = 150
 
     while w % 4 != 0:
         w = w + 1
@@ -69,8 +68,8 @@ def setup_stereo_camera(camera, random=False):
     camera.Height.Value = h
 
     
-    camera.OffsetX.Value = 500
+    # camera.OffsetX.Value = 500
 
-    # camera.BslCenterX.Execute()
+    camera.BslCenterX.Execute()
     camera.BslCenterY.Execute()
 

@@ -32,7 +32,7 @@ class LidarSection(Section):
         self.img_size = self.rows * self.cols * self.channels
         print(f"Shared image found: {self.rows}x{self.cols}x{self.channels}")
 
-        self.depth_or_reflection = "depth"
+        self.depth_or_intensity = "intensity"
 
     
     def draw(self):
@@ -40,7 +40,7 @@ class LidarSection(Section):
         rect.centerx = int(self.window.get_width() // 2)
         rect.centery = int(self.window.get_height() // 2)
 
-        if self.depth_or_reflection == "depth":
+        if self.depth_or_intensity == "depth":
             depth_img_bytes = self.depth_shm.buf[self.header_size:self.header_size + self.img_size]
             depth_img = np.frombuffer(depth_img_bytes, dtype=np.uint8).reshape((self.rows, self.cols, self.channels))
             depth_img = cv2.applyColorMap(depth_img, cv2.COLORMAP_MAGMA)
