@@ -1,0 +1,1 @@
+../LivoxLidar/compile.sh

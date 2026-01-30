@@ -55,6 +55,16 @@ def process_event_image(image):
 
     return image_mono
 
+def set_new_size(width, height, img):
+    aspect_ration = width / height
+    new_img_height = img.shape[1] / aspect_ration
+    height_diff = abs(img.shape[0] - new_img_height)
+    if height_diff != 0:
+        img = img[int(height_diff/2):int(-height_diff/2), :]
+
+    img = cv2.resize(img, (width, height))
+    return img
+
 def main():
     calibration_data_path = "./calibration_data"
     folders = os.listdir(calibration_data_path)
@@ -140,6 +150,14 @@ def main():
 
         rgb_l =  cv2.cvtColor(rgb_l, cv2.COLOR_BGR2GRAY)
         rgb_r =  cv2.cvtColor(rgb_r, cv2.COLOR_BGR2GRAY)
+
+        height = min(rgb_l.shape[0], rgb_r.shape[0], event_l.shape[0], event_r.shape[0])
+        width =  min(rgb_l.shape[1], rgb_r.shape[1], event_l.shape[1], event_r.shape[1])
+
+        rgb_l = set_new_size(width, height, rgb_l)
+        rgb_r = set_new_size(width, height, rgb_r)
+        event_l = set_new_size(width, height, event_l)
+        event_r = set_new_size(width, height, event_r)
 
         rgb_l = cv2.GaussianBlur(rgb_l, (5,5), 0)
         rgb_r = cv2.GaussianBlur(rgb_r, (5,5), 0)

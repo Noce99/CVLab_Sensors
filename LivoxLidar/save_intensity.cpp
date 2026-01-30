@@ -41,6 +41,7 @@
 #include <format>
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <filesystem>
 
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
@@ -48,16 +49,18 @@
 uint64_t points = 0;
 uint64_t first_timestamp = 0;
 
-int width = 800;
-int height = 200;
-int focal_x = 300;
-int focal_y = 300;
+int width = 1000;
+int height = 400;
+int focal_x = 800;
+int focal_y = 800;
 cv::Mat depth_image(height, width, CV_64F);
 std::vector<std::vector<double>> reflection_map(width, std::vector<double>(height, 0.0));
 
 int fps = 1;
-int dt_milliseconds = 5000; // 1000 / fps;
-int last_start_milliseconds = 0;
+long int dt_microseconds = 10000000; // 1000 / fps;
+long int last_start_microseconds = 0;
+
+std::string FOLDER_TO_SAVE;
 
 using namespace boost::interprocess;
 
@@ -114,10 +117,14 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
 
   points++;
 
+
   uint64_t timestamp = 0;
   for(int i = 0; i < 8; i++) {
       timestamp |= static_cast<uint64_t>(data->timestamp[i]) << (8 * i);
   }
+
+  // std::cout << "timestamp = [" << millisecondsToDate(timestamp / 1000) << "]" << "[" << data->time_type <<"]"<< std::endl;
+
 
   if (first_timestamp == 0){
     first_timestamp = timestamp;
@@ -146,24 +153,31 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
 
       if (v > 0 && v < width && u > 0 && u < height){
         depth_image.at<double>(height-u, width-v) = z;
-        reflection_map[width-v][height-u] += reflectivity;
+        if (reflection_map[width-v][height-u] > 0){
+          reflection_map[width-v][height-u] = (reflection_map[width-v][height-u] + reflectivity) / 2.0;
+        }else{
+          reflection_map[width-v][height-u] = reflectivity;
+        }
       }
     }
 
-    int current_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+    long int current_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    if (last_start_milliseconds == 0) {
-        last_start_milliseconds = current_milliseconds;
-    }else if (current_milliseconds - last_start_milliseconds > dt_milliseconds) {
-        std::cout << "Saving images... [" << millisecondsToDate(current_milliseconds) << "]" << std::endl;
+    if (last_start_microseconds == 0) {
+        last_start_microseconds = current_microseconds;
+    }else if (current_microseconds - last_start_microseconds > dt_microseconds) {
+        std::string reflection_filename = std::to_string(current_microseconds) + ".png";
+        std::string path_to_save = FOLDER_TO_SAVE + "/lidar/" + reflection_filename;
+
+        std::cout << "Saving images... [" << millisecondsToDate(current_microseconds / 1000) << "]" << std::endl;
+        std::cout << "In " << path_to_save << std::endl;
 
         // std::string depth_filename = "depth_map_" + std::to_string(current_milliseconds) + ".png";
-        std::string reflection_filename = "reflection_map_" + std::to_string(current_milliseconds) + ".png";
         // cv::imwrite(depth_filename, depth_image);
-        cv::imwrite(reflection_filename, image_from_reflection_map());
+        cv::imwrite(path_to_save, image_from_reflection_map());
 
-        last_start_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        last_start_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
         depth_image.setTo(cv::Scalar(0));
@@ -185,14 +199,14 @@ void WorkModeCallback(livox_status status, uint32_t handle,LivoxLidarAsyncContro
   if (response == nullptr) {
     return;
   }
-  printf("WorkModeCallack, status:%u, handle:%u, ret_code:%u, error_key:%u",
-      status, handle, response->ret_code, response->error_key);
+  // printf("WorkModeCallack, status:%u, handle:%u, ret_code:%u, error_key:%u",
+  //     status, handle, response->ret_code, response->error_key);
 
 }
 void QueryInternalInfoCallback(livox_status status, uint32_t handle, 
   LivoxLidarDiagInternalInfoResponse* response, void* client_data) {
   if (status != kLivoxLidarStatusSuccess) {
-    printf("Query lidar internal info failed.\n");
+    // printf("Query lidar internal info failed.\n");
     QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
     return;
   }
@@ -238,7 +252,7 @@ void LidarInfoChangeCallback(const uint32_t handle, const LivoxLidarInfo* info, 
     printf("lidar info change callback failed, the info is nullptr.\n");
     return;
   } 
-  printf("LidarInfoChangeCallback Lidar handle: %u SN: %s\n", handle, info->sn);
+  // printf("LidarInfoChangeCallback Lidar handle: %u SN: %s\n", handle, info->sn);
   // set the work mode to kLivoxLidarNormal, namely start the lidar
   SetLivoxLidarWorkMode(handle, kLivoxLidarNormal, WorkModeCallback, nullptr);
   QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
@@ -246,15 +260,29 @@ void LidarInfoChangeCallback(const uint32_t handle, const LivoxLidarInfo* info, 
 
 
 int main(int argc, const char *argv[]) {
-  std::string path;
   if (argc != 2) {
-    path = "/home/ubm/SDKs/Livox-SDK2/samples/livox_lidar_quick_start/hap_noce.json";
+    auto now = std::chrono::system_clock::now();
+    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&in_time_t), "%Y_%m_%d_%H_%M_%S");
+    FOLDER_TO_SAVE = "./calibration_data/" + ss.str();
   }else{
-    path = argv[1];
+    FOLDER_TO_SAVE = argv[1];
   }
 
+  std::cout << "Saving data to folder: " << FOLDER_TO_SAVE << std::endl;
+  if (!std::filesystem::exists(FOLDER_TO_SAVE)) {
+    std::filesystem::create_directories(FOLDER_TO_SAVE);
+  }
+  if (!std::filesystem::exists(FOLDER_TO_SAVE + "/lidar")) {
+    std::filesystem::create_directories(FOLDER_TO_SAVE + "/lidar");
+  }
+
+  std::string json_setup_path = "/home/ubm/SDKs/Livox-SDK2/samples/livox_lidar_quick_start/hap_noce.json";
+
   // REQUIRED, to init Livox SDK2
-  if (!LivoxLidarSdkInit(path.c_str())) {
+  if (!LivoxLidarSdkInit(json_setup_path.c_str())) {
     printf("Livox Init Failed\n");
     LivoxLidarSdkUninit();
     return -1;

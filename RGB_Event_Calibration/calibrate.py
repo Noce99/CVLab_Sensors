@@ -153,6 +153,11 @@ def main():
     event_l = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
     event_r = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
 
+    print(f"rgb_l {rgb_l.shape}")
+    print(f"rgb_r {rgb_r.shape}")
+    print(f"event_l {event_l.shape}")
+    print(f"event_r {event_r.shape}")
+
 
     rgb_image_size = (rgb_l.shape[1], rgb_l.shape[0])
     event_image_size = (event_l.shape[1], event_l.shape[0])
