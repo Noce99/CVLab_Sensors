@@ -74,23 +74,30 @@ class RGBSection(Section):
 
     @staticmethod
     def camera_handler(cameras, info):
-        tlFactory = pylon.TlFactory.GetInstance()
-        while not info["left_camera_found"] or \
-              not info["right_camera_found"]:
-            devices = tlFactory.EnumerateDevices()
-            for d in devices:
-                if d.GetSerialNumber() == LEFT_SERIAL:
-                    cameras[0].Attach(tlFactory.CreateDevice(d))
-                    cameras[0].Open()
-                    setup_stereo_cameras(cameras[0], False)
-                    info["left_camera_found"] = True
-                elif d.GetSerialNumber() == RIGHT_SERIAL:
-                    cameras[1].Attach(tlFactory.CreateDevice(d))
-                    cameras[1].Open()
-                    setup_stereo_cameras(cameras[1], True)
-                    info["right_camera_found"] = True
-                else:
-                    print(f"Uknown camera with serial: {d.GetSerialNumber()}")
+        print("Starting camera initialization!")
+
+        tlf = pylon.TlFactory.GetInstance()
+        tl = tlf.CreateTl('BaslerGigE')
+        tlf.EnumerateDevices()
+
+        cam_info_left = tl.CreateDeviceInfo()
+        cam_info_left.SetIpAddress('192.168.1.70')
+
+        cam_info_right = tl.CreateDeviceInfo()
+        cam_info_right.SetIpAddress('192.168.1.71')
+
+        cameras[0].Attach(tlf.CreateDevice(cam_info_left))
+        cameras[0].Open()
+        setup_stereo_cameras(cameras[0], False)
+        cameras[0].StreamGrabber.TransmissionType.Value ="Multicast"
+        cameras[0].StreamGrabber.DestinationAddr.Value ="192.168.1.52"
+
+        cameras[1].Attach(tlf.CreateDevice(cam_info_right))
+        cameras[1].Open()
+        setup_stereo_cameras(cameras[1], True)
+        cameras[1].StreamGrabber.TransmissionType.Value ="Multicast"
+        cameras[1].StreamGrabber.DestinationAddr.Value ="192.168.1.53"
+
         info["state"] = "Receiving Data"
 
         cameras.StartGrabbing()
@@ -105,6 +112,7 @@ class RGBSection(Section):
             cameraContextValue = grabResult.GetCameraContext()
 
             if cameraContextValue == 0:
+                print("LEFT")
                 camera_to_select = "left_last_image"
                 if grabResult.GrabSucceeded():
                     info["left_good_count"] += 1
@@ -120,6 +128,7 @@ class RGBSection(Section):
                         print("Camera 0 error!")
                         print(e)
             else:
+                print("RIGHT")
                 camera_to_select = "right_last_image"
                 if grabResult.GrabSucceeded():
                     info["right_good_count"] += 1
@@ -193,11 +202,12 @@ class RGBSection(Section):
             flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE + cv2.CALIB_CB_FILTER_QUADS
             
             left_img = self.info["left_last_image"]
-            left_img = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
             right_img = self.info["right_last_image"]
-            right_img = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
             
             if left_img is not None and right_img is not None:
+
+                left_img = cv2.cvtColor(left_img, cv2.COLOR_BGR2RGB)
+                right_img = cv2.cvtColor(right_img, cv2.COLOR_BGR2RGB)
 
                 left_img_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
                 right_img_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)

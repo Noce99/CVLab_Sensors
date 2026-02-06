@@ -20,7 +20,7 @@ def setup_stereo_camera(camera, random=False):
     # FPS #
     #######
     camera.AcquisitionFrameRateEnable.Value = True
-    camera.AcquisitionFrameRate.Value = 2
+    camera.AcquisitionFrameRate.Value = 10
 
     ############
     # Exposure #

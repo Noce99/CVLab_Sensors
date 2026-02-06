@@ -53,8 +53,8 @@ def setup_stereo_cameras(camera, random=False):
     ################
     # Spatial Size #
     ################
-    w = int(2448 * 0.5)     # 2448
-    h = int(2048  * 0.4)     # 2048
+    w = int(2448 * 1.0)     # 2448
+    h = int(2048  * 1.0)     # 2048
 
 
     while w % 4 != 0:

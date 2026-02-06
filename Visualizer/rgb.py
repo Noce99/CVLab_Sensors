@@ -6,7 +6,7 @@ import numpy as np
 from pypylon import genicam
 from pypylon import pylon
 from utils import Section, resize_with_aspect_ratio
-from RGBCamera.setup_stereo_cameras import setup_stereo_camera
+from RGBCamera.setup_stereo_cameras import setup_stereo_cameras
 
 
 LEFT_SERIAL = "40663113"
@@ -49,23 +49,32 @@ class RGBSection(Section):
 
     @staticmethod
     def camera_handler(cameras, info):
-        tlFactory = pylon.TlFactory.GetInstance()
-        while not info["left_camera_found"] or \
-              not info["right_camera_found"]:
-            devices = tlFactory.EnumerateDevices()
-            for d in devices:
-                if d.GetSerialNumber() == LEFT_SERIAL:
-                    cameras[0].Attach(tlFactory.CreateDevice(d))
-                    cameras[0].Open()
-                    setup_stereo_camera(cameras[0], False)
-                    info["left_camera_found"] = True
-                elif d.GetSerialNumber() == RIGHT_SERIAL:
-                    cameras[1].Attach(tlFactory.CreateDevice(d))
-                    cameras[1].Open()
-                    setup_stereo_camera(cameras[1], True)
-                    info["right_camera_found"] = True
-                else:
-                    print(f"Uknown camera with serial: {d.GetSerialNumber()}")
+        print("Starting camera initialization!")
+
+        tlf = pylon.TlFactory.GetInstance()
+        tl = tlf.CreateTl('BaslerGigE')
+        tlf.EnumerateDevices()
+
+        cam_info_left = tl.CreateDeviceInfo()
+        cam_info_left.SetIpAddress('192.168.1.70')
+
+        cam_info_right = tl.CreateDeviceInfo()
+        cam_info_right.SetIpAddress('192.168.1.71')
+
+        cameras[0].Attach(tlf.CreateDevice(cam_info_left))
+        cameras[0].Open()
+        cameras[0].StreamGrabber.TransmissionType.Value ="Multicast"
+        cameras[0].StreamGrabber.DestinationAddr.Value ="192.168.1.52"
+        cameras[0].StreamGrabber.DestinationPort.Value =49152
+        setup_stereo_cameras(cameras[0], False)
+
+        cameras[1].Attach(tlf.CreateDevice(cam_info_right))
+        cameras[1].Open()
+        cameras[1].StreamGrabber.TransmissionType.Value ="Multicast"
+        cameras[1].StreamGrabber.DestinationAddr.Value ="192.168.1.53"
+        cameras[1].StreamGrabber.DestinationPort.Value =49153
+        setup_stereo_cameras(cameras[1], True)
+        
         info["state"] = "Receiving Data"
 
         cameras.StartGrabbing()

@@ -11,7 +11,7 @@ import argparse
 import time
 
 
-FPS = 10.
+FPS = 20.
 ACCUMULATION_MS = 10
 
 class SaveEventImages:
