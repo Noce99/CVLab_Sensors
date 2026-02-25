@@ -8,3 +8,4 @@ processed_data/
 calibration_results/
 calibration_data_events/
 venv
+Cameras_Server/live_imgs/

@@ -45,7 +45,7 @@ def setup_stereo_cameras(camera, random=False):
     ##########
     # Colors #
     ##########
-    camera.PixelFormat.Value = "Mono8"
+    camera.PixelFormat.Value = "RGB8"
     """
     Mono8, Mono10, Mono10p, Mono12, Mono12p, RGB8, BGR8 ...
     """
@@ -54,7 +54,7 @@ def setup_stereo_cameras(camera, random=False):
     # Spatial Size #
     ################
     w = int(2448 * 1.0)     # 2448
-    h = int(2048  * 1.0)     # 2048
+    h = int(2048  * 0.8)     # 2048
 
 
     while w % 4 != 0:
