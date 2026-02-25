@@ -1,0 +1,7 @@
+pypylon
+opencv-python
+h5py
+pygame
+tqdm
+scipy
+open3d
