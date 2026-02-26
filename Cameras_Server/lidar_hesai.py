@@ -82,9 +82,7 @@ class LidarHesaiManager:
         try:
             # Search for Hesai acquisition program
             possible_paths = [
-                "./hesai_lidar_example",
-                "../RGB_Hesai_Calibration/hesai_example",
-                "/home/ubm/SDKs/HesaiLidar_SDK_2.0/build/hesai_lidar_sdk_example",
+                "./cpp/save_point_cloud_hesai"
             ]
             
             hesai_program = None
@@ -100,7 +98,7 @@ class LidarHesaiManager:
             
             print(f"INFO: Starting LiDAR Hesai: {hesai_program}")
             self.process = subprocess.Popen(
-                [hesai_program, self.temp_path],
+                [hesai_program, "./live_imgs/lidar_hesai"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
@@ -110,39 +108,40 @@ class LidarHesaiManager:
             lidar_path = os.path.join(self.temp_path, "lidar")
             
             while self.running:
-                pattern = os.path.join(lidar_path, "*.png")
-                files = sorted(glob.glob(pattern))
+                pass
+                # pattern = os.path.join(lidar_path, "*.png")
+                # files = sorted(glob.glob(pattern))
                 
-                if files:
-                    latest_file = files[-1]
+                # if files:
+                #     latest_file = files[-1]
                     
-                    try:
-                        frame = cv2.imread(latest_file, cv2.IMREAD_GRAYSCALE)
-                        if frame is not None:
-                            # Apply RAINBOW colormap
-                            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                            frame = cv2.applyColorMap(frame, cv2.COLORMAP_RAINBOW)
+                #     try:
+                #         frame = cv2.imread(latest_file, cv2.IMREAD_GRAYSCALE)
+                #         if frame is not None:
+                #             # Apply RAINBOW colormap
+                #             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                #             frame = cv2.applyColorMap(frame, cv2.COLORMAP_RAINBOW)
                             
-                            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                            timestamp_us = int(os.path.basename(latest_file).replace('.png', ''))
+                #             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                #             timestamp_us = int(os.path.basename(latest_file).replace('.png', ''))
                             
-                            with self.status_lock:
-                                self.camera_status['lidar_hesai']['frame'] = frame
-                                self.camera_status['lidar_hesai']['active'] = True
-                                self.camera_status['lidar_hesai']['last_update'] = timestamp
-                                self.camera_status['lidar_hesai']['fps'] = 20
+                #             with self.status_lock:
+                #                 self.camera_status['lidar_hesai']['frame'] = frame
+                #                 self.camera_status['lidar_hesai']['active'] = True
+                #                 self.camera_status['lidar_hesai']['last_update'] = timestamp
+                #                 self.camera_status['lidar_hesai']['fps'] = 20
                             
-                            self.saver.save_frame_to_disk('lidar_hesai', frame, timestamp_us)
+                #             self.saver.save_frame_to_disk('lidar_hesai', frame, timestamp_us)
                         
-                        for old_file in files[:-5]:
-                            try:
-                                os.remove(old_file)
-                            except:
-                                pass
-                    except Exception as e:
-                        print(f"WARNING: Error reading Hesai frame: {e}")
+                #         for old_file in files[:-5]:
+                #             try:
+                #                 os.remove(old_file)
+                #             except:
+                #                 pass
+                #     except Exception as e:
+                #         print(f"WARNING: Error reading Hesai frame: {e}")
                 
-                time.sleep(0.1)
+                # time.sleep(0.1)
                 
         except Exception as e:
             print(f"ERROR: Hesai capture failed: {e}")

@@ -96,9 +96,7 @@ class LidarLivoxManager:
         try:
             # Search for Livox acquisition program
             possible_paths = [
-                "./save_intensity",
-                "../RGB_Livox_Calibration/save_intensity",
-                "/home/ubm/CVLab_Sensors/RGB_Livox_Calibration/save_intensity",
+                "./cpp/save_point_cloud_livox"
             ]
             
             livox_program = None
@@ -114,7 +112,7 @@ class LidarLivoxManager:
             
             print(f"INFO: Starting LiDAR Livox: {livox_program}")
             self.process = subprocess.Popen(
-                [livox_program, self.temp_path],
+                [livox_program, "./live_imgs/lidar_livox"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
@@ -125,42 +123,43 @@ class LidarLivoxManager:
             lidar_path = os.path.join(self.temp_path, "lidar")
             
             while self.running:
+                pass
                 # Find most recent file
-                pattern = os.path.join(lidar_path, "*.png")
-                files = sorted(glob.glob(pattern))
+                # pattern = os.path.join(lidar_path, "*.png")
+                # files = sorted(glob.glob(pattern))
                 
-                if files:
-                    latest_file = files[-1]
+                # if files:
+                #     latest_file = files[-1]
                     
-                    try:
-                        # Read grayscale intensity image
-                        frame = cv2.imread(latest_file, cv2.IMREAD_GRAYSCALE)
-                        if frame is not None:
-                            # Convert to BGR and apply JET colormap for depth visualization
-                            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                            frame = cv2.applyColorMap(frame, cv2.COLORMAP_JET)
+                #     try:
+                #         # Read grayscale intensity image
+                #         frame = cv2.imread(latest_file, cv2.IMREAD_GRAYSCALE)
+                #         if frame is not None:
+                #             # Convert to BGR and apply JET colormap for depth visualization
+                #             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                #             frame = cv2.applyColorMap(frame, cv2.COLORMAP_JET)
                             
-                            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                            timestamp_us = int(os.path.basename(latest_file).replace('.png', ''))
+                #             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                #             timestamp_us = int(os.path.basename(latest_file).replace('.png', ''))
                             
-                            with self.status_lock:
-                                self.camera_status['lidar_livox']['frame'] = frame
-                                self.camera_status['lidar_livox']['active'] = True
-                                self.camera_status['lidar_livox']['last_update'] = timestamp
-                                self.camera_status['lidar_livox']['fps'] = 1
+                #             with self.status_lock:
+                #                 self.camera_status['lidar_livox']['frame'] = frame
+                #                 self.camera_status['lidar_livox']['active'] = True
+                #                 self.camera_status['lidar_livox']['last_update'] = timestamp
+                #                 self.camera_status['lidar_livox']['fps'] = 1
                             
-                            self.saver.save_frame_to_disk('lidar_livox', frame, timestamp_us)
+                #             self.saver.save_frame_to_disk('lidar_livox', frame, timestamp_us)
                         
-                        # Cleanup: keep only last 5 files
-                        for old_file in files[:-5]:
-                            try:
-                                os.remove(old_file)
-                            except:
-                                pass
-                    except Exception as e:
-                        print(f"WARNING: Error reading Livox frame: {e}")
+                #         # Cleanup: keep only last 5 files
+                #         for old_file in files[:-5]:
+                #             try:
+                #                 os.remove(old_file)
+                #             except:
+                #                 pass
+                #     except Exception as e:
+                #         print(f"WARNING: Error reading Livox frame: {e}")
                 
-                time.sleep(0.5)
+                # time.sleep(0.5)
                 
         except Exception as e:
             print(f"ERROR: Livox capture failed: {e}")
