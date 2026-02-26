@@ -26,7 +26,7 @@ def launch_save_images(left_camera: bool, path: str):
 class EventSaveStereoImages:
 
     def __init__(self, left_path):
-        self.left_thread  = launch_save_images(left_camera = True,  path = left_path)
+        self.left_thread  = launch_save_images(left_camera = False,  path = left_path)
     
     def kill_all(self):
         self.left_thread.kill()

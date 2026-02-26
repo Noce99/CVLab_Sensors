@@ -104,16 +104,16 @@ if __name__ == "__main__":
                         data_path=data_folder_path,
                         logs_folder_path=logs_folder_path
                     ),
-        "test_2":   PythonScript(
-                        script_path="rgb.py",
-                        data_path=data_folder_path,
-                        logs_folder_path=logs_folder_path
-                    ),
-        "test_3":   PythonScript(
-                        script_path="rgb.py",
-                        data_path=data_folder_path,
-                        logs_folder_path=logs_folder_path
-                    ),
+        # "test_2":   PythonScript(
+        #                 script_path="rgb.py",
+        #                 data_path=data_folder_path,
+        #                 logs_folder_path=logs_folder_path
+        #             ),
+        # "test_3":   PythonScript(
+        #                 script_path="rgb.py",
+        #                 data_path=data_folder_path,
+        #                 logs_folder_path=logs_folder_path
+        #             ),
     }
     
     try:

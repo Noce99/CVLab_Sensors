@@ -29,10 +29,12 @@ def save_data(cameras, path_left, path_right):
     cameras[0].Attach(tl.CreateDevice(cam_left_info))
     cameras[0].Open()
     setup_stereo_cameras(cameras[0])
+    cameras[0].StreamGrabber.TransmissionType ="LimitedBroadcast"
 
     cameras[1].Attach(tl.CreateDevice(cam_right_info))
     cameras[1].Open()
     setup_stereo_cameras(cameras[1])
+    cameras[1].StreamGrabber.TransmissionType ="LimitedBroadcast"
 
     while True:
         all_locked = True

@@ -10,3 +10,5 @@ calibration_data_events/
 venv
 Cameras_Server/live_imgs/
 get_data/data/
+Cameras_Server/temp_event_frames/
+RGB_From_All_Sensors/rgb_images/

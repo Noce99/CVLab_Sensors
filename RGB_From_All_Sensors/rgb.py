@@ -17,19 +17,21 @@ RIGHT_SERIAL = "40665216"
 
 class RGBSaveStereoImages:
     def __init__(self, path_left):
-        cameras = pylon.InstantCameraArray(2) # 0 -> left, 1 --> right
         self.info = {"getting_data": False}
         self.camera_thread = \
             threading.Thread(
                 target=RGBSaveStereoImages.save_data,
-                args = (cameras, path_left, self.info),
+                args = (path_left, self.info),
                 daemon=True,
             )
         self.camera_thread.start()     
 
 
     @staticmethod
-    def save_data(cameras, path_left, info):
+    def save_data(path_left, info):
+
+        cameras = pylon.InstantCameraArray(2)
+
         print(f"Starting taking data!")
         # tlFactory = pylon.TlFactory.GetInstance()
 
@@ -64,12 +66,22 @@ class RGBSaveStereoImages:
         cameras[0].Attach(tl.CreateDevice(cam_left_info))
         cameras[0].Open()
         setup_stereo_cameras(cameras[0])
-        # cameras[0].GetStreamGrabberParams().DestinationAddr = "239.0.0.1"
-        # cameras[0].GetStreamGrabberParams().DestinationPort = 49154
 
         cameras[1].Attach(tl.CreateDevice(cam_right_info))
         cameras[1].Open()
         setup_stereo_cameras(cameras[1])
+
+
+
+        cameras[1].StreamGrabber.TransmissionType ="Multicast"
+        cameras[1].SetCameraContext(1)
+        cameras[1].StreamGrabber.DestinationAddr ="192.168.1.52"
+        cameras[1].StreamGrabber.DestinationPort.Value = 5555
+        cameras[0].StreamGrabber.TransmissionType ="Multicast"
+        cameras[0].SetCameraContext(0)
+        cameras[0].StreamGrabber.DestinationAddr ="192.168.1.52"
+        cameras[0].StreamGrabber.DestinationPort.Value = 5556
+
 
 
         """left_camera_found = False
@@ -107,22 +119,26 @@ class RGBSaveStereoImages:
         print(f"Starting taking data from Left and Right RGB cameras...")
         info["getting_data"] = True
 
-        cameras.StartGrabbing()
+        cameras.StartGrabbing(pylon.GrabStrategy_OneByOne)
 
         while True:
             grabResult = cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-
+            
             cameraContextValue = grabResult.GetCameraContext()
 
-            if cameraContextValue == 0:
+            print(cameraContextValue)
 
-                if grabResult.GrabSucceeded():
-                    timestamp = grabResult.GetTimeStamp()
-                    path_to_save = os.path.join(path_left, f"{int(timestamp / 1e3)}.png")
-                    rgb_image = cv2.cvtColor(grabResult.GetArray(), cv2.COLOR_BGR2RGB)
-                    cv2.imwrite(path_to_save, rgb_image)
-                    # cv2.imshow(f"Camera {cameraContextValue}", grabResult.GetArray())
-                    # cv2.waitKey(1)
+            if grabResult.GrabSucceeded():
+                timestamp = grabResult.GetTimeStamp()
+                path_to_save = os.path.join(path_left, f"{cameraContextValue}_{int(timestamp / 1e3)}.png")
+                rgb_image = cv2.cvtColor(grabResult.GetArray(), cv2.COLOR_BGR2RGB)
+                cv2.imwrite(path_to_save, rgb_image)
+                # cv2.imshow(f"Camera {cameraContextValue}", grabResult.GetArray())
+                # cv2.waitKey(1)
+                # print("YEA")
+            else:
+                # print("FUCK")
+                pass
  
  
 if __name__ == "__main__":

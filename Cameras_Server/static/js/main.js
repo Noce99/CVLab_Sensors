@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     document.getElementById('start-all').addEventListener('click', startAll);
     document.getElementById('stop-all').addEventListener('click', stopAll);
+    document.getElementById('clear-all').addEventListener('click', clearAll);
+    document.getElementById('move-all').addEventListener('click', moveAll);
 });
 
 // Aggiorna l'orologio di sistema
@@ -243,13 +245,49 @@ async function stopCamera(cameraName) {
     }
 }
 
+
+// Cancella dati dal disco
+async function clearAll() {
+    try {
+        const response = await fetch('/api/clear_all');
+        const data = await response.json();
+        
+        console.log('Cancellati tutti i dati salvati:', data);
+        showNotification('Cancello tutti i dati presi...', 'info');
+        
+        // Aggiorna lo stato
+        updateAllStatus();
+        
+    } catch (error) {
+        console.error('Errore nella cancellazione delle immagini salvate:', error);
+        showNotification('Errore nella cancellazione immagini', 'error');
+    }
+}
+
+// Sposta Img salvate su altra cartella ripulendo live_imgs
+async function moveAll() {
+    try {
+        const response = await fetch('/api/move_all');
+        const data = await response.json();
+        
+        console.log('Sposto tutte le live_imgs in ~/Documents/CVLab_live_imgs:', data);
+        showNotification('Sposto tutte le live_imgs in ~/Documents/CVLab_live_imgs:', 'info');
+        
+        // Aggiorna lo stato
+        updateAllStatus;
+        
+    } catch (error) {
+        console.error('Errore nello spostamento delle immagini:', error);
+        showNotification('Errore nello spostamento delle immagini', 'error');
+    }
+}
+
 // Mostra una notifica (implementazione semplice)
 function showNotification(message, type) {
     // Per ora solo console.log, puoi implementare toast notifications
     console.log(`[${type.toUpperCase()}] ${message}`);
     
-    // Opzionale: aggiungi una libreria di notifiche come Toastify
-    // o implementa un sistema custom
+
 }
 
 // Auto-refresh dei frame (opzionale, commentato per default)
