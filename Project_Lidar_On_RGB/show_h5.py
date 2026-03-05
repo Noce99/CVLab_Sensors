@@ -15,16 +15,16 @@ def read_a_file(path_h5_file):
         print(f"  Total points: {dataset.shape[0]}")
         
         # Read the file creation timestamp attribute
-        if 'file_creation_timestamp' in dataset.attrs:
-            timestamp_us = dataset.attrs['file_creation_timestamp']
+        # if 'file_creation_timestamp' in dataset.attrs:
+        #     timestamp_us = dataset.attrs['file_creation_timestamp']
             
-            # Convert microseconds to datetime
-            timestamp_s = timestamp_us / 1_000_000  # Convert to seconds
-            dt = datetime.fromtimestamp(timestamp_s)
-            print(f"  File creation time: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"  Timestamp (μs): {timestamp_us}")
-        else:
-            print("  Warning: No file_creation_timestamp attribute found")
+        #     # Convert microseconds to datetime
+        #     timestamp_s = timestamp_us / 1_000_000  # Convert to seconds
+        #     dt = datetime.fromtimestamp(timestamp_s)
+        #     print(f"  File creation time: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        #     print(f"  Timestamp (μs): {timestamp_us}")
+        # else:
+        #     print("  Warning: No file_creation_timestamp attribute found")
         
         return dataset[:]
     
@@ -122,6 +122,8 @@ if __name__ == "__main__":
     folder = folders[-1]
 
     lidar_folder_path = os.path.join(calibration_data_path, folder, "lidar")
+
+    lidar_folder_path = "/home/ubm/CVLab_Sensors/CVLab_live_imgs/2026_03_05__14_02_41/lidar_hesai"
 
     h5_files = os.listdir(lidar_folder_path)
     h5_files.sort()

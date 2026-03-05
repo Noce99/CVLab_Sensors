@@ -63,7 +63,7 @@ long int last_start_microseconds = 0;
 
 std::string FOLDER_TO_SAVE;
 
-int MAX_POINTS = 1000000;
+int MAX_POINTS = 100000;
 int h5_file_index = 0;
 int buffer_index = 0;
 std::shared_ptr<H5::H5File> h5file = nullptr;
@@ -76,7 +76,11 @@ using namespace boost::interprocess;
 
 void initialize_h5_file(const std::string &file_path)
 {
-  std::string complete_file_path = file_path + "/point_cloud_" + std::to_string(h5_file_index) + ".h5";
+  long int timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  
+  std::string complete_file_path = file_path + "/" + std::to_string(timestamp) + ".h5";
   h5file = std::make_shared<H5::H5File>(complete_file_path, H5F_ACC_TRUNC);
 
   hsize_t dims[2] = {
