@@ -47,6 +47,7 @@ class RGBStereoManager:
         self.running = False
         self.thread = None
         self.cameras = None
+        self.temp_path = "./temp_event_frames"
         self.saver = saver
         
     def start(self):
@@ -184,6 +185,7 @@ class RGBStereoManager:
                 for i, camera in enumerate(self.cameras):
                     camera.PtpDataSetLatch.Execute()
                     time.sleep(0.1)
+                    print(f"[{i}] -- {camera.PtpStatus.Value} [{camera.PtpServoStatus.Value}] [{camera.PtpOffsetFromMaster.Value} ns]")
                     if camera.PtpServoStatus.Value != "Locked":
                         all_locked = False
                 if all_locked:
@@ -195,6 +197,19 @@ class RGBStereoManager:
             self.cameras.StartGrabbing()
             frame_count = 0
             start_time = time.time()
+
+            left_path = os.path.join(self.temp_path, "../live_imgs/rgb_left")
+            right_path = os.path.join(self.temp_path, "../live_imgs/rgb_right")
+            path = [left_path, right_path]
+            
+            pc_ts  = time.time() * 1_000_000
+            camera.TimestampLatch.Execute()
+            # Get the timestamp value
+            camera_ts = camera.TimestampLatchValue.Value / 1_000
+            print(f"pc_ts = {pc_ts}")
+            print(f"camera_ts = {camera_ts}")
+            delta_ts = pc_ts - camera_ts
+            print(f"delta_ts = {delta_ts}")
             
             # Main acquisition loop
             while self.running:
@@ -203,35 +218,39 @@ class RGBStereoManager:
                 
                 if grabResult.GrabSucceeded():
                     camera_index = grabResult.GetCameraContext()
-                    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    timestamp_us = int(time.time() * 1_000_000)
-                    frame = grabResult.GetArray()
+                    # timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    # frame = grabResult.GetArray()
                     
-                    # Convert grayscale to BGR if necessary
-                    if len(frame.shape) == 2:
-                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                    else:
-                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    # # Convert grayscale to BGR if necessary
+                    # if len(frame.shape) == 2:
+                    #     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                    # else:
+                    #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                     
-                    # Determine camera name based on index
-                    camera_name = 'rgb_left' if camera_index == 0 else 'rgb_right'
+                    # # Determine camera name based on index
+                    # camera_name = 'rgb_left' if camera_index == 0 else 'rgb_right'
                     
-                    # Update status dictionary (thread-safe)
-                    with self.status_lock:
-                        self.camera_status[camera_name]['frame'] = frame
-                        self.camera_status[camera_name]['active'] = True
-                        self.camera_status[camera_name]['last_update'] = timestamp
+                    # # Update status dictionary (thread-safe)
+                    # with self.status_lock:
+                    #     self.camera_status[camera_name]['frame'] = frame
+                    #     self.camera_status[camera_name]['active'] = True
+                    #     self.camera_status[camera_name]['last_update'] = timestamp
                         
-                        # Calculate FPS every 30 frames
-                        frame_count += 1
-                        if frame_count % 30 == 0:
-                            elapsed = time.time() - start_time
-                            fps = 30 / elapsed
-                            self.camera_status[camera_name]['fps'] = int(fps)
-                            start_time = time.time()
+                    #     # Calculate FPS every 30 frames
+                    #     frame_count += 1
+                    #     if frame_count % 30 == 0:
+                    #         elapsed = time.time() - start_time
+                    #         fps = 30 / elapsed
+                    #         self.camera_status[camera_name]['fps'] = int(fps)
+                    #         start_time = time.time()
                     
-                    # Save frame to disk
-                    self.saver.save_frame_to_disk(camera_name, frame, timestamp_us)
+                    # # Save frame to disk
+                    # timestamp_us = int(time.time() * 1_000_000)
+                    # self.saver.save_frame_to_disk(camera_name, frame, timestamp_us)
+                    ts = grabResult.GetTimeStamp() / 1_000 + delta_ts
+                    # print(grabResult.GetTimeStamp() / 1_000_000_000)
+                    cv2.imwrite(os.path.join(path[camera_index], f"{int(ts)}.png"), cv2.cvtColor(grabResult.GetArray(), cv2.COLOR_RGB2BGR))
+
                 
                 grabResult.Release()
                 

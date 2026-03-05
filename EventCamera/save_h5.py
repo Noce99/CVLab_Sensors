@@ -46,16 +46,20 @@ def get_data_from_camera(left_camera: bool, path: str):
             print(f"Error initiating Event device {serial}: {e}. Retrying...")
             pass
 
-    now = datetime.now()
-    microseconds_from_epoch = int(now.timestamp() * 1_000_000)
-    time_folder_name = f"{microseconds_from_epoch}.raw"
 
-
+    counter = 0
     if device.get_i_events_stream():
-        device.get_i_events_stream().log_raw_data(os.path.join(path, time_folder_name))
+        starting_timestamp_us = int(datetime.now().timestamp() * 1_000_000)
         mv_iterator = EventsIterator.from_device(device=device)
+        device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
+
         for evs in mv_iterator:
-            pass
+            counter += 1
+            if counter > 20:
+                device.get_i_events_stream().stop_log_raw_data()
+                starting_timestamp_us = int(datetime.now().timestamp() * 1_000_000)
+                device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
+                counter = 0
 
 
     """
