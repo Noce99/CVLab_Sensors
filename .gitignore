@@ -13,3 +13,4 @@ get_data/data/
 Cameras_Server/temp_event_frames/
 RGB_From_All_Sensors/rgb_images/
 CVLab_live_imgs/
+prophecee_venv/

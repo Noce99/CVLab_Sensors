@@ -106,7 +106,7 @@ class EventStereoManager:
         try:
             # Search for Event camera acquisition script
             possible_paths = [
-                "../EventCamera/save_images.py",
+                "../EventCamera/save_h5.py"# "../EventCamera/save_images.py",
             ]
             
             event_script = None
@@ -124,23 +124,23 @@ class EventStereoManager:
             python_executable = sys.executable
             
             # Define output paths
-            left_path = os.path.join(self.temp_path, "left")
-            right_path = os.path.join(self.temp_path, "right")
+            left_path = os.path.join(self.temp_path, "../live_imgs/event_left")
+            right_path = os.path.join(self.temp_path, "../live_imgs/event_right")
             
             # Launch subprocess for left camera
             print(f"INFO: Starting Event left camera: {event_script}")
             self.left_process = subprocess.Popen(
                 [python_executable, event_script, left_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                # stdout=subprocess.PIPE,
+                # stderr=subprocess.PIPE
             )
             
             # Launch subprocess for right camera (with --right-camera flag)
             print(f"INFO: Starting Event right camera: {event_script}")
             self.right_process = subprocess.Popen(
                 [python_executable, event_script, right_path, "--right-camera"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                # stdout=subprocess.PIPE,
+                # stderr=subprocess.PIPE
             )
             
             # Wait for processes to initialize
@@ -148,7 +148,7 @@ class EventStereoManager:
             
             # Main loop: monitor temporary directories for new frames
             while self.running:
-                # Process left camera frames
+                """# Process left camera frames
                 pattern_left = os.path.join(left_path, "*.png")
                 files_left = sorted(glob.glob(pattern_left))
                 
@@ -218,7 +218,8 @@ class EventStereoManager:
                         print(f"WARNING: Error reading Event right frame: {e}")
                 
                 # Poll every 200ms
-                time.sleep(0.2)
+                time.sleep(0.2)"""
+                pass
                 
         except Exception as e:
             print(f"ERROR: Event capture failed: {e}")

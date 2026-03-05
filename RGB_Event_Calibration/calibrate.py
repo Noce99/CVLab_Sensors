@@ -373,6 +373,24 @@ def main():
     vertical_stack = np.vstack((rect_left, rect_right))
     cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_vertical_stack.png"), vertical_stack)
 
+    np.savez(
+        os.path.join(current_folder_calib_results, "rgb_event_calibration.npz"),
+        rgb_K_left = rgb_K_left,
+        rgb_D_left = rgb_D_left,
+        rgb_K_right = rgb_K_right,
+        rgb_D_right = rgb_D_right,
+        event_K_left = event_K_left,
+        event_D_left = event_D_left,
+        event_K_right = event_K_right,
+        event_D_right = event_D_right,
+        rgb_R = rgb_R,
+        rgb_T = rgb_T,
+        event_R = event_R,
+        event_T = event_T,
+        rgb_event_R = rgb_event_R,
+        rgb_event_T = rgb_event_T,
+    )
+
 
 
 

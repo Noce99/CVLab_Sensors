@@ -24,6 +24,8 @@ import sys
 import subprocess
 import glob
 import shutil
+from Reader_lidar import load_latest_lidar_frame
+from Reader_event import load_latest_event_frame
 
 from rgb import RGBStereoManager
 from event import EventStereoManager
@@ -124,18 +126,36 @@ def get_frame(camera_name):
     """
     if camera_name not in camera_status:
         return jsonify({'error': 'Camera not found'}), 404
-    
-    with status_lock:
-        frame = camera_status[camera_name]['frame']
-        if frame is None:
-            return jsonify({'error': 'No frame available'}), 404
-        
-        # Encode frame as JPEG with 85% quality
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        
-        # Convert to base64 for transmission
-        frame_base64 = base64.b64encode(buffer).decode('utf-8')
-    
+
+    # I lidar salvano in H5: legge e converte l'ultimo file ad ogni richiesta
+    if camera_name == 'lidar_livox':
+        frame = load_latest_lidar_frame(
+            os.path.join(LIVE_IMGS_PATH, 'lidar_livox'),
+            cv2.COLORMAP_JET
+        )
+    elif camera_name == 'lidar_hesai':
+        frame = load_latest_lidar_frame(
+            os.path.join(LIVE_IMGS_PATH, 'lidar_hesai'),
+            cv2.COLORMAP_RAINBOW
+        )
+    # Le event camera salvano in .raw: legge e converte l'ultimo file ad ogni richiesta
+    elif camera_name == 'event_left':
+        frame = load_latest_event_frame(os.path.join(LIVE_IMGS_PATH, 'event_left'))
+    elif camera_name == 'event_right':
+        frame = load_latest_event_frame(os.path.join(LIVE_IMGS_PATH, 'event_right'))
+    else:
+        with status_lock:
+            frame = camera_status[camera_name]['frame']
+
+    if frame is None:
+        return jsonify({'error': 'No frame available'}), 404
+
+    # Encode frame as JPEG with 85% quality
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+    # Convert to base64 for transmission
+    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+
     return jsonify({
         'frame': f'data:image/jpeg;base64,{frame_base64}',
         'timestamp': camera_status[camera_name]['last_update']

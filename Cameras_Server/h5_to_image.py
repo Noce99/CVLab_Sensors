@@ -35,11 +35,11 @@ def show_image(datasets_paths):
     H = 1000
     W = 1000
     img = np.zeros((H, W), dtype=np.uint8)
-    u_0 = H / 2
-    v_0 = W / 2
-    fx = 500
-    fy = 500
-
+    u_0 = H / 2.
+    v_0 = W / 2.
+    fx = 500.
+    fy = 500.
+    
     def project_points(points):
         nonlocal img
 
@@ -48,10 +48,10 @@ def show_image(datasets_paths):
             if z > 0:
                 u = max(0, min(int(-x*fx/z + u_0), H-1))
                 v = max(0, min(int(-y*fy/z + v_0), W-1))
-                img[u, v] = max(0, min(int(z/ 70), 255))
+                img[u, v] = 255 - max(0, min(int(z/ 30000 * 255), 255))
 
         cv2.imshow("Depth Image", img)
-        cv2.waitKey(1)
+        cv2.waitKey(0)
         img = np.zeros((H, W), dtype=np.uint8)
 
     while True:
@@ -63,6 +63,7 @@ if __name__ == "__main__":
         folder_with_h5_path = sys.argv[1]
     else:
         print("No arguments provided")
+        exit(1)
 
     h5_files = os.listdir(folder_with_h5_path)
     h5_files.sort()
