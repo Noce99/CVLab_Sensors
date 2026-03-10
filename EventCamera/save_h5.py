@@ -11,6 +11,7 @@ import argparse
 
 import time
 from datetime import datetime
+import traceback
 
 
 FPS = 20.
@@ -36,7 +37,7 @@ def get_data_from_camera(left_camera: bool, path: str):
     while True:
         try:
             # camera = Camera.from_serial(serial)
-            device = initiate_device(path=serial)
+            device = initiate_device(path=serial, do_time_shifting=False)
             """if left_camera:
                 print(f"DONE LEFT!")
             else:
@@ -48,17 +49,20 @@ def get_data_from_camera(left_camera: bool, path: str):
 
 
     counter = 0
+    start_wall_time_us = int(time.time() * 1_000_000)
+
     if device.get_i_events_stream():
         starting_timestamp_us = int(datetime.now().timestamp() * 1_000_000)
         mv_iterator = EventsIterator.from_device(device=device)
         device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
 
         for evs in mv_iterator:
+            if counter == 0:
+                device.get_i_events_stream().stop_log_raw_data()
+                starting_timestamp_us = int(start_wall_time_us + evs[0]['t'])
+                device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
             counter += 1
             if counter > 20:
-                device.get_i_events_stream().stop_log_raw_data()
-                starting_timestamp_us = int(datetime.now().timestamp() * 1_000_000)
-                device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
                 counter = 0
 
 

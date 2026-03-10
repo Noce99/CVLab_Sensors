@@ -30,7 +30,52 @@ def lava_color_map():
             lava_colormap[i, 0, 2] = int(255 * (0.25 + (t - 0.75) * 3))  # B
     return lava_colormap
 
-def load_lidar_frame(h5_file_path, colormap=cv2.COLORMAP_MAGMA):
+def project_points_3d_to_2d(points_3d, K, D):
+    """
+    Project multiple 3D points to 2D image coordinates.
+    
+    Args:
+        points_3d: List/array of 3D points with shape (N, 3) where each point is [x, y, z]
+                  x = up/down (vertical)
+                  y = left/right (horizontal)
+                  z = along optical axis (distance from camera)
+        K: Camera matrix (3x3)
+        D: Distortion coefficients (1x5)
+    
+    Returns:
+        points_2d: Array of 2D pixel coordinates with shape (N, 2) [u, v]
+    """
+    # Convert to numpy array if needed
+    points_3d = np.array(points_3d, dtype=np.float32)
+    
+    # Handle single point case
+    if points_3d.ndim == 1:
+        points_3d = points_3d.reshape(1, -1)
+    
+    # Convert from your coordinate system to OpenCV convention
+    # Your: [x, y, z] where x=up, y=right, z=forward
+    # OpenCV: [x_cv, y_cv, z_cv] where x_cv=right, y_cv=down, z_cv=forward
+    points_cv = np.zeros_like(points_3d)
+    points_cv[:, 0] = points_3d[:, 1]  # x_cv = y (right)
+    points_cv[:, 1] = -points_3d[:, 0]  # y_cv = -x (negative because your x is up)
+    points_cv[:, 2] = points_3d[:, 2]   # z_cv = z (forward)
+    
+    # Reshape for OpenCV (N, 1, 3)
+    points_cv = points_cv.reshape(-1, 1, 3)
+    
+    # No rotation or translation (points are in camera coordinates)
+    rvec = np.zeros((3, 1), dtype=np.float32)
+    tvec = np.zeros((3, 1), dtype=np.float32)
+    
+    # Project all points at once
+    points_2d, _ = cv2.projectPoints(points_cv, rvec, tvec, K, D)
+    
+    # Reshape to (N, 2)
+    points_2d = points_2d.reshape(-1, 2)
+    
+    return points_2d
+
+def load_lidar_frame(h5_file_path, K=None, D=None, x_translate=None, y_translate=None, colormap=cv2.COLORMAP_MAGMA):
     """
     Legge l'ultimo file H5 nella cartella del lidar, proietta i punti 3D
     su un'immagine 2D e applica una colormap.
@@ -69,36 +114,74 @@ def load_lidar_frame(h5_file_path, colormap=cv2.COLORMAP_MAGMA):
     except Exception as e:
         print(f"WARNING: Impossibile leggere {h5_file_path}: {e}")
         return None
-
-    # Parametri di proiezione (pinhole)
-    H, W = 720 // 2, 1280 // 2
-    u_0  = H / 2.0
-    v_0  = W / 2.0
-    fx   = 500.0
-    fy   = 500.0
-
-    normalized_depth_map = np.zeros((H, W), dtype=np.float32)
-
-
+    
     print(f"xs = [{points[:, 0].min()}:{points[:, 0].max()}]")
     print(f"ys = [{points[:, 1].min()}:{points[:, 1].max()}]")
     print(f"zs = [{points[:, 2].min()}:{points[:, 2].max()}]")
     print(f"Points = {points.shape} {points.dtype}")
+    
+    if K is None or D is None:
+        # Parametri di proiezione (pinhole)
+        H, W = 720 // 2, 1280 // 2
+        u_0  = H / 2.0
+        v_0  = W / 2.0
+        fx   = 500.0
+        fy   = 500.0
 
-    for x, y, z, t in points:
-        if z > 0:
-            u = int(-x * fx / z + u_0)
-            v = int(y * fy / z + v_0)
-            u = max(0, min(u, H - 1))
-            v = max(0, min(v, W - 1))
-            normalized_depth_map[u, v] = min(max(MIN_DISTANCE, z), MAX_DISTANCE) / MAX_DISTANCE
+        normalized_depth_map = np.zeros((H, W), dtype=np.float32)
 
-    depth_map_255 = (normalized_depth_map * 255).astype(np.uint8)
 
-    colored_bgr = cv2.applyColorMap(depth_map_255, colormap)
-    # colored_rgb = cv2.cvtColor(colored_bgr, cv2.COLOR_BGR2RGB)
+        
 
-    colored_bgr = cv2.resize(colored_bgr, (1280, 720))
+        for x, y, z, t in points:
+            if z > 0:
+                if x_translate is not None:
+                    x += x_translate
+                if y_translate is not None:
+                    y += y_translate
+                u = int(-x * fx / z + u_0)
+                v = int(y * fy / z + v_0)
+                u = max(0, min(u, H - 1))
+                v = max(0, min(v, W - 1))
+                normalized_depth_map[u, v] = min(max(MIN_DISTANCE, z), MAX_DISTANCE) / MAX_DISTANCE
+
+        depth_map_255 = (normalized_depth_map * 255).astype(np.uint8)
+
+        colored_bgr = cv2.applyColorMap(depth_map_255, colormap)
+        # colored_rgb = cv2.cvtColor(colored_bgr, cv2.COLOR_BGR2RGB)
+
+        colored_bgr = cv2.resize(colored_bgr, (1280, 720))
+    else:
+        # 1958
+        # 1229
+        fx = K[0, 0]
+        fy = K[1, 1]
+        v_0 = K[0, 2] # test
+        u_0 = K[1, 2] # test
+        H, W = int(u_0*2), int(v_0*2)
+
+        normalized_depth_map = np.zeros((H, W), dtype=np.float32)
+        kernel = 3
+
+        for x, y, z, t in points:
+            if z > 0:
+                if x_translate is not None:
+                    x += x_translate
+                if y_translate is not None:
+                    y += y_translate
+                u = int(-x * fx / z + u_0)
+                v = int(y * fy / z + v_0)
+                u = max(0, min(u, H - 1))
+                v = max(0, min(v, W - 1))
+                normalized_depth_map[u-kernel:u+kernel, v-kernel:v+kernel] = min(max(MIN_DISTANCE, z), MAX_DISTANCE) / MAX_DISTANCE
+
+        depth_map_255 = (normalized_depth_map * 255).astype(np.uint8)
+
+        colored_bgr = cv2.applyColorMap(depth_map_255, colormap)
+        # colored_rgb = cv2.cvtColor(colored_bgr, cv2.COLOR_BGR2RGB)
+
+        colored_bgr = cv2.resize(colored_bgr, (1280, 720))
+
 
     return colored_bgr
 

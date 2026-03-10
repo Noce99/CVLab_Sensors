@@ -53,7 +53,7 @@ def raw_event_to_images(path_to_raw_file, accumulation_time_us=100000, fps=10):
     def callback(ts, frame):
         imgs[ts] = frame
     
-    periodic_gen = PeriodicFrameGenerationAlgorithm(width, height, accumulation_time_us=accumulation_time_us, fps=fps, palette=ColorPalette.Light)
+    periodic_gen = PeriodicFrameGenerationAlgorithm(width, height, accumulation_time_us=accumulation_time_us, fps=fps, palette=ColorPalette.CoolWarm)
     periodic_gen.set_output_callback(callback)
 
     for evs in mv_iterator:

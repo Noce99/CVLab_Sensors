@@ -13,6 +13,9 @@ from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 from event_raw_to_img import raw_event_to_images
 from lidar_h5_to_img import load_lidar_frame
 
+import traceback
+import subprocess
+
 #versione 2
 
 # ── Configurazione ───────────────────────────────────────────────────────────
@@ -185,6 +188,8 @@ def main():
         event_R       = data['event_R']
         event_T       = data['event_T']
 
+    print(f"rgb_K_left = {rgb_K_left}")
+
     print("Parametri di calibrazione caricati.")
 
     # Crea cartella rectified
@@ -205,74 +210,95 @@ def main():
     event_right_frames = get_event_frames_from_raw(os.path.join(session, "event_right"))
     lidar_livox_files = get_images_sorted(os.path.join(session, "lidar_livox"))
     lidar_hesai_files = get_images_sorted(os.path.join(session, "lidar_hesai"))
-
+    
     for i in range(len(rgb_left_imgs)):
-
-        ref_ts, ref_path = rgb_left_imgs[i]
-        print(f"\n--- Frame {i+1}/{len(rgb_left_imgs)} ---")
-        print(f"Riferimento (rgb_left): ts={ref_ts}")
-
-        # Trova le immagini più vicine nelle altre 3 cartelle
-        rgb_right_path, rgb_right_ts     = find_closest_image(rgb_right_imgs,   ref_ts)
-        img_event_left, event_left_ts    = find_closest_frame(event_left_frames,  ref_ts)
-        img_event_right, event_right_ts  = find_closest_frame(event_right_frames, ref_ts)
-        lidar_livox_path, lidar_livox_ts = find_closest_image(lidar_livox_files,   ref_ts)
-        lidar_hesai_path, lidar_hesai_ts = find_closest_image(lidar_hesai_files,   ref_ts)
-
-        # ── Carica le 4 immagini a risoluzione piena ─────────────────────────
-        img_rgb_left    = load_image(ref_path)
-        img_rgb_right   = load_image(rgb_right_path)
-        livox_img       = load_lidar_frame(lidar_livox_path)
-        hesai_img       = load_lidar_frame(lidar_hesai_path)
-
-
-        # img_event_left e img_event_right sono già array numpy pronti
-
-        # ── Rettifica la coppia RGB ───────────────────────────────────────────
-        # resize_rgb ritaglia e porta le rgb a 1280x720 prima di rettificare
-        img_rgb_left  = resize_rgb(img_rgb_left)
-        img_rgb_right = resize_rgb(img_rgb_right)
-
-        # img_rgb_left_rect, img_rgb_right_rect, _ = rectify(
-        #     rgb_K_left, rgb_D_left,
-        #     rgb_K_right, rgb_D_right,
-        #     rgb_R, rgb_T,
-        #     img_rgb_left, img_rgb_right
-        # )
-        img_rgb_left_rect = img_rgb_left
-        img_rgb_right_rect = img_rgb_right
-
-        # ── Rettifica la coppia Event ─────────────────────────────────────────
-        # Le event camera non hanno bisogno di resize_rgb (risoluzione nativa diversa)
-        # img_event_left_rect, img_event_right_rect, _ = rectify(
-        #     event_K_left, event_D_left,
-        #     event_K_right, event_D_right,
-        #     event_R, event_T,
-        #     img_event_left, img_event_right
-        # )
-        img_event_left_rect = img_event_left
-        img_event_right_rect = img_event_right
-
-        # ── Costruisci la griglia 2x2 (ridimensiona per la visualizzazione) ───
-        top_row    = np.hstack([resize_for_grid(img_rgb_left_rect),   resize_for_grid(img_rgb_right_rect), resize_for_grid(livox_img)])
-        bottom_row = np.hstack([resize_for_grid(img_event_left_rect), resize_for_grid(img_event_right_rect), resize_for_grid(hesai_img)])
         
-        grid       = np.vstack([top_row, bottom_row])
+        try:
+            ref_ts, ref_path = rgb_left_imgs[i]
+            print(f"\n--- Frame {i+1}/{len(rgb_left_imgs)} ---")
+            print(f"Riferimento (rgb_left): ts={ref_ts}")
+
+            # Trova le immagini più vicine nelle altre 3 cartelle
+            rgb_right_path, rgb_right_ts     = find_closest_image(rgb_right_imgs,   ref_ts)
+            img_event_left, event_left_ts    = find_closest_frame(event_left_frames,  ref_ts)
+            img_event_right, event_right_ts  = find_closest_frame(event_right_frames, ref_ts)
+            lidar_livox_path, lidar_livox_ts = find_closest_image(lidar_livox_files,   ref_ts)
+            lidar_hesai_path, lidar_hesai_ts = find_closest_image(lidar_hesai_files,   ref_ts)
+
+            # ── Carica le 4 immagini a risoluzione piena ─────────────────────────
+            img_rgb_left    = load_image(ref_path)
+            img_rgb_right   = load_image(rgb_right_path)
+            livox_img       = load_lidar_frame(lidar_livox_path, event_K_left, event_D_left, )#x_translate=0, y_translate=200)
+            hesai_img       = load_lidar_frame(lidar_hesai_path, event_K_left, event_D_left, )#x_translate=150, y_translate=200)
 
 
 
-        # ── Salva nella cartella rectified ────────────────────────────────────
-        output_path = os.path.join(rectified_dir, str(ref_ts) + ".png")
-        cv2.imwrite(output_path, grid)
-        print(f"Immagine salvata in: {output_path}")
+            # img_event_left e img_event_right sono già array numpy pronti
 
-        # ── Mostra a schermo ──────────────────────────────────────────────────
-        # cv2.imshow("CVLab - All Camera View", grid)
-        # cv2.moveWindow("CVLab - All Camera View", 0, 0)
-        # key = cv2.waitKey(0)
-        # if key == ord('q') or key == 27:   # Q o ESC per uscire prima della fine
-        #     print("Uscita anticipata.")
-        #     break
+            # ── Rettifica la coppia RGB ───────────────────────────────────────────
+            # resize_rgb ritaglia e porta le rgb a 1280x720 prima di rettificare
+            img_rgb_left  = resize_rgb(img_rgb_left)
+            img_rgb_right = resize_rgb(img_rgb_right)
+
+            img_rgb_left_rect, img_rgb_right_rect, _ = rectify(
+                event_K_left, event_D_left,
+                event_K_right, event_D_right,
+                event_R, event_T,
+                img_rgb_left, img_rgb_right
+            )
+            img_rgb_left_rect = img_rgb_left
+            img_rgb_right_rect = img_rgb_right
+
+            # ── Rettifica la coppia Event ─────────────────────────────────────────
+            # Le event camera non hanno bisogno di resize_rgb (risoluzione nativa diversa)
+            img_event_left_rect, img_event_right_rect, _ = rectify(
+                rgb_K_left, rgb_D_left,
+                rgb_K_right, rgb_D_right,
+                event_R, event_T,
+                img_event_right, img_event_left
+            )
+            img_event_left_rect = img_event_left
+            img_event_right_rect = img_event_right
+
+            # ── Costruisci la griglia 2x2 (ridimensiona per la visualizzazione) ───
+            top_row    = np.hstack([resize_for_grid(img_rgb_left_rect),   resize_for_grid(img_rgb_right_rect), resize_for_grid(livox_img)])
+            bottom_row = np.hstack([resize_for_grid(img_event_left_rect), resize_for_grid(img_event_right_rect), resize_for_grid(hesai_img)])
+            
+            grid       = np.vstack([top_row, bottom_row])
+
+
+
+            # ── Salva nella cartella rectified ────────────────────────────────────
+            output_path = os.path.join(rectified_dir, f"{i}.png")
+            cv2.imwrite(output_path, grid)
+            print(f"Immagine salvata in: {output_path}")
+
+            # ── Mostra a schermo ──────────────────────────────────────────────────
+            # cv2.imshow("CVLab - All Camera View", grid)
+            # cv2.moveWindow("CVLab - All Camera View", 0, 0)
+            # key = cv2.waitKey(0)
+            # if key == ord('q') or key == 27:   # Q o ESC per uscire prima della fine
+            #     print("Uscita anticipata.")
+            #     break
+        except Exception as e:
+            traceback.print_exc()
+
+    cmd = [
+        "ffmpeg",
+        "-framerate", "10",
+        "-i", f"{rectified_dir}/%d.png",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-y",  # Overwrite output file without asking
+        f"{rectified_dir}/cool_video.mp4",
+    ]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
 
     cv2.destroyAllWindows()
 

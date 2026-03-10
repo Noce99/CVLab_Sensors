@@ -136,7 +136,7 @@ def get_frame(camera_name):
     elif camera_name == 'lidar_hesai':
         frame = load_latest_lidar_frame(
             os.path.join(LIVE_IMGS_PATH, 'lidar_hesai'),
-            cv2.COLORMAP_RAINBOW
+            cv2.COLORMAP_TURBO
         )
     # Le event camera salvano in .raw: legge e converte l'ultimo file ad ogni richiesta
     elif camera_name == 'event_left':
@@ -146,6 +146,19 @@ def get_frame(camera_name):
     else:
         with status_lock:
             frame = camera_status[camera_name]['frame']
+
+        # Se il frame in memoria è None (es. server riavviato),
+        # cerca l'ultimo file .png su disco come fallback
+        if frame is None:
+            cam_folder = os.path.join(LIVE_IMGS_PATH, camera_name)
+            if os.path.exists(cam_folder):
+                png_files = []
+                for filename in os.listdir(cam_folder):
+                    if filename.endswith(".png") or filename.endswith(".jpg"):
+                        png_files.append(os.path.join(cam_folder, filename))
+                if png_files:
+                    png_files.sort()
+                    frame = cv2.imread(png_files[-1])
 
     if frame is None:
         return jsonify({'error': 'No frame available'}), 404
