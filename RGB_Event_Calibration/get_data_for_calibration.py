@@ -5,8 +5,12 @@ from rgb import RGBSaveStereoImages
 from event import EventSaveStereoImages
 import time
 
+import subprocess
+
 
 def main():
+    subprocess.run(["sudo", "./scripts/disconnect_and_reconnect_event_cameras.sh"], capture_output=True, text=True)
+
     if not os.path.exists("./calibration_data"):
         os.mkdir("./calibration_data")
 

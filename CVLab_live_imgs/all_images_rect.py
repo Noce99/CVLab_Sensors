@@ -240,25 +240,28 @@ def main():
             img_rgb_left  = resize_rgb(img_rgb_left)
             img_rgb_right = resize_rgb(img_rgb_right)
 
-            img_rgb_left_rect, img_rgb_right_rect, _ = rectify(
-                event_K_left, event_D_left,
-                event_K_right, event_D_right,
-                event_R, event_T,
+            img_rgb_left_rect, img_rgb_right_rect, comparison = rectify(
+                rgb_K_left, rgb_D_left,
+                rgb_K_right, rgb_D_right,
+                rgb_R, rgb_T,
                 img_rgb_left, img_rgb_right
             )
-            img_rgb_left_rect = img_rgb_left
-            img_rgb_right_rect = img_rgb_right
+
+
+            # img_rgb_left_rect = img_rgb_left
+            # img_rgb_right_rect = img_rgb_right
 
             # ── Rettifica la coppia Event ─────────────────────────────────────────
             # Le event camera non hanno bisogno di resize_rgb (risoluzione nativa diversa)
-            img_event_left_rect, img_event_right_rect, _ = rectify(
-                rgb_K_left, rgb_D_left,
-                rgb_K_right, rgb_D_right,
+            img_event_left_rect, img_event_right_rect, comparison = rectify(
+                event_K_left, event_D_left,
+                event_K_right, event_D_right,
                 event_R, event_T,
-                img_event_right, img_event_left
+                img_event_left, img_event_right
             )
-            img_event_left_rect = img_event_left
-            img_event_right_rect = img_event_right
+            
+            # img_event_left_rect = img_event_left
+            # img_event_right_rect = img_event_right
 
             # ── Costruisci la griglia 2x2 (ridimensiona per la visualizzazione) ───
             top_row    = np.hstack([resize_for_grid(img_rgb_left_rect),   resize_for_grid(img_rgb_right_rect), resize_for_grid(livox_img)])

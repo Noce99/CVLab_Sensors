@@ -179,11 +179,11 @@ def main():
         rgb_l = adjust_gamma(rgb_l, gamma=0.1)
         rgb_r = adjust_gamma(rgb_r, gamma=0.1)
 
-        cv2.imshow("Event Left", event_l)
-        cv2.imshow("Event Right", event_r)
-        cv2.imshow("RGB Left", rgb_l)
-        cv2.imshow("RGB Right", rgb_r)
-        cv2.waitKey(1)
+        # cv2.imshow("Event Left", event_l)
+        # cv2.imshow("Event Right", event_r)
+        # cv2.imshow("RGB Left", rgb_l)
+        # cv2.imshow("RGB Right", rgb_r)
+        # cv2.waitKey(1)
 
         cb_rgb_l, corner_rgb_l = cv2.findChessboardCornersSB(rgb_l, PATTERN_SIZE, flags=0)
         cb_rgb_r, corner_rgb_r = cv2.findChessboardCornersSB(rgb_r, PATTERN_SIZE, flags=0)
