@@ -1,1 +1,1 @@
-./save_intensity
+./save_intensity $1

@@ -65,8 +65,8 @@ def save_data(path_left, path_right):
     path = [path_left, path_right]
 
     pc_ts  = time.time() * 1_000_000
-    camera.TimestampLatch.Execute()
-    camera_ts = camera.TimestampLatchValue.Value / 1_000
+    cameras[0].TimestampLatch.Execute()
+    camera_ts = cameras[0].TimestampLatchValue.Value / 1_000
     delta_ts = pc_ts - camera_ts
 
     counter = 0
@@ -85,8 +85,8 @@ def save_data(path_left, path_right):
                 if cameraContextValue == 0 and counter % 100 == 0:
                     counter = 0
                     pc_ts  = time.time() * 1_000_000
-                    camera.TimestampLatch.Execute()
-                    camera_ts = camera.TimestampLatchValue.Value / 1_000
+                    cameras[0].TimestampLatch.Execute()
+                    camera_ts = cameras[0].TimestampLatchValue.Value / 1_000
                     delta_ts = pc_ts - camera_ts
 
                 counter += 1

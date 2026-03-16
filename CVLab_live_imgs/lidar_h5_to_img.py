@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 
 MIN_DISTANCE = 300 # mm
-MAX_DISTANCE = 5_000 # mm
+MAX_DISTANCE = 20_000 # mm
 
 def lava_color_map():
     lava_colormap = np.zeros((256, 1, 3), dtype=np.uint8)

@@ -42,6 +42,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <filesystem>
+#include <H5Cpp.h>
 
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
@@ -61,6 +62,16 @@ long int dt_microseconds = 10000000; // 1000 / fps;
 long int last_start_microseconds = 0;
 
 std::string FOLDER_TO_SAVE;
+std::string next_name = "not_set";
+
+int MAX_POINTS = 100000*100;
+int h5_file_index = 0;
+int buffer_index = 0;
+std::shared_ptr<H5::H5File> h5file = nullptr;
+std::shared_ptr<H5::DataSet> dataset = nullptr;
+std::vector<int16_t> points_buffer(MAX_POINTS * 5);
+long int file_timestamp = 0;
+long int relative_time_ns = 0;
 
 using namespace boost::interprocess;
 
@@ -84,6 +95,7 @@ cv::Mat image_from_reflection_map(){
   double min_val = reflection_map[0][0];
   double max_val = reflection_map[0][0];
 
+  min_val = 0.0;
   max_val = 5.0; // Cap the max value for better visualization
 
   // Create OpenCV Mat for RGB image
@@ -107,6 +119,36 @@ cv::Mat image_from_reflection_map(){
   }
 
   return image;
+}
+
+void initialize_h5_file(const std::string &file_path)
+{
+  long int timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  next_name = std::to_string(timestamp);
+
+  std::string complete_file_path = file_path + "/" + std::to_string(timestamp) + ".h5";
+  h5file = std::make_shared<H5::H5File>(complete_file_path, H5F_ACC_TRUNC);
+
+  hsize_t dims[2] = {
+      static_cast<hsize_t>(MAX_POINTS),
+      static_cast<hsize_t>(5) // 4 attributes: x, y, z, reflectivity, timestamp
+  };
+  H5::DataSpace dataspace(2, dims);
+
+  // H5::DSetCreatPropList prop;
+  // hsize_t chunk_dims[2] = {1024, 4}; // Chunk size
+  // prop.setChunk(2, chunk_dims);
+
+  dataset = std::make_shared<H5::DataSet>(h5file->createDataSet("point_cloud", H5::PredType::NATIVE_INT16, dataspace)); // , prop));
+  file_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  H5::Attribute timestamp_attr = dataset->createAttribute("file_creation_timestamp", H5::PredType::NATIVE_LONG, H5::DataSpace());
+  timestamp_attr.write(H5::PredType::NATIVE_LONG, &file_timestamp);
+  h5_file_index += 1;
+  relative_time_ns = 0;
 }
 
 
@@ -135,6 +177,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
   double u_0 = height*1.0 / 2;
   double v_0 = width*1.0 / 2;
 
+  int time_step = static_cast<int>(static_cast<double>(data->time_interval) / static_cast<double>(data->dot_num) * 0.1 * 1e3); // in microseconds
 
   if (data->data_type == kLivoxLidarCartesianCoordinateHighData) {
     LivoxLidarCartesianHighRawPoint *p_point_data = (LivoxLidarCartesianHighRawPoint *)data->data;
@@ -145,29 +188,39 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
       double x = p_point_data[i].z;
       double y = p_point_data[i].y;
       double z = p_point_data[i].x;
-      double reflectivity = p_point_data[i].reflectivity;
-      
-      int u = int(x*fx/z + u_0);
-      int v = int(y*fy/z + v_0);
+      if (z > 0){
+        double reflectivity = p_point_data[i].reflectivity;
+        
+        int u = int(x*fx/z + u_0);
+        int v = int(y*fy/z + v_0);
 
 
-      if (v > 0 && v < width && u > 0 && u < height){
-        depth_image.at<double>(height-u, width-v) = z;
-        if (reflection_map[width-v][height-u] > 0){
-          reflection_map[width-v][height-u] = (reflection_map[width-v][height-u] + reflectivity) / 2.0;
-        }else{
-          reflection_map[width-v][height-u] = reflectivity;
+        if (v > 0 && v < width && u > 0 && u < height){
+          depth_image.at<double>(height-u, width-v) = z;
+          if (reflection_map[width-v][height-u] > 0){
+            reflection_map[width-v][height-u] = (reflection_map[width-v][height-u] + reflectivity) / 2.0;
+          }else{
+            reflection_map[width-v][height-u] = reflectivity;
+          }
         }
+
+        points_buffer[buffer_index++] = x;
+        points_buffer[buffer_index++] = y;
+        points_buffer[buffer_index++] = z;
+        points_buffer[buffer_index++] = reflectivity;
+        points_buffer[buffer_index++] = relative_time_ns;
+
+        relative_time_ns += time_step;
       }
     }
 
     long int current_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-
+    
     if (last_start_microseconds == 0) {
         last_start_microseconds = current_microseconds;
     }else if (current_microseconds - last_start_microseconds > dt_microseconds) {
-        std::string reflection_filename = std::to_string(current_microseconds) + ".png";
+        std::string reflection_filename = next_name + ".png";
         std::string path_to_save = FOLDER_TO_SAVE + "/lidar/" + reflection_filename;
 
         std::cout << "Saving images... [" << millisecondsToDate(current_microseconds / 1000) << "]" << std::endl;
@@ -184,6 +237,16 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         for (auto& row : reflection_map) {
           std::fill(row.begin(), row.end(), 0.0);
         }
+
+        // Save current buffer to H5 file
+        dataset->write(points_buffer.data(), H5::PredType::NATIVE_INT16);
+        h5file->close();
+
+        // Initialize new H5 file
+        initialize_h5_file(FOLDER_TO_SAVE + "/lidar_raw");
+
+        // Reset buffer index and add current point
+        buffer_index = 0;
     }
 
   }else if (data->data_type == kLivoxLidarCartesianCoordinateLowData) {
@@ -260,6 +323,8 @@ void LidarInfoChangeCallback(const uint32_t handle, const LivoxLidarInfo* info, 
 
 
 int main(int argc, const char *argv[]) {
+  std::cout << "argc: " << argc << std::endl;
+
   if (argc != 2) {
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -278,8 +343,13 @@ int main(int argc, const char *argv[]) {
   if (!std::filesystem::exists(FOLDER_TO_SAVE + "/lidar")) {
     std::filesystem::create_directories(FOLDER_TO_SAVE + "/lidar");
   }
+  if (!std::filesystem::exists(FOLDER_TO_SAVE + "/lidar_raw")) {
+    std::filesystem::create_directories(FOLDER_TO_SAVE + "/lidar_raw");
+  }
 
   std::string json_setup_path = "/home/ubm/SDKs/Livox-SDK2/samples/livox_lidar_quick_start/hap_noce.json";
+
+  initialize_h5_file(FOLDER_TO_SAVE + "/lidar_raw");
 
   // REQUIRED, to init Livox SDK2
   if (!LivoxLidarSdkInit(json_setup_path.c_str())) {

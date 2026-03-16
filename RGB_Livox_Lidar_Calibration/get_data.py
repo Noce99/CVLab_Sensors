@@ -30,12 +30,14 @@ def main():
     os.mkdir(os.path.join(calibration_data_path, folder_name))
 
     lidar_path = os.path.join(calibration_data_path, folder_name, "lidar")
+    lidar_raw_path = os.path.join(calibration_data_path, folder_name, "lidar_raw")
     rgb_path = os.path.join(calibration_data_path, folder_name, "rgb")
 
     os.mkdir(lidar_path)
+    os.mkdir(lidar_raw_path)
     os.mkdir(rgb_path)
 
-    process = start_getting_lidar_data(lidar_path)
+    process = start_getting_lidar_data(os.path.join(calibration_data_path, folder_name))
     start_getting_rgb_data(rgb_path)
 
 

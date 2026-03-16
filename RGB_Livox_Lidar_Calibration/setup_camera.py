@@ -53,8 +53,11 @@ def setup_camera(camera, random=False):
     ################
     # Spatial Size #
     ################
-    w = 2472
-    h = 1500
+    w = 2448
+    h = 2048
+    
+    camera.Width.Value = w 
+    camera.Height.Value = h
 
     camera.BslCenterX.Execute()
     camera.BslCenterY.Execute()

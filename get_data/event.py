@@ -29,11 +29,13 @@ class SaveEventImages:
 
 def get_data_from_camera(left_camera: bool, path: str):
     while True:
+
         if left_camera:
             serial = "00051962"
         else:
             serial = "00051961"
-        
+        print(f"Event Camera initialization {serial}")
+
         while True:
             try:
                 # camera = Camera.from_serial(serial)
