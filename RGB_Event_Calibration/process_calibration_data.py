@@ -204,8 +204,8 @@ def main():
 
             corners_rgb_l_fine = cv2.cornerSubPix(rgb_l, corner_rgb_l, (11,11), (-1,-1), criteria)
             corners_rgb_r_fine = cv2.cornerSubPix(rgb_r, corner_rgb_r, (11,11), (-1,-1), criteria)
-            corners_event_l_fine = cv2.cornerSubPix(event_l, corner_event_l, (11,11), (-1,-1), criteria)
-            corners_event_r_fine = cv2.cornerSubPix(event_r, corner_event_r, (11,11), (-1,-1), criteria)
+            corners_event_l_fine = corner_event_l # cv2.cornerSubPix(event_l, corner_event_l, (11,11), (-1,-1), criteria)
+            corners_event_r_fine = corner_event_r # cv2.cornerSubPix(event_r, corner_event_r, (11,11), (-1,-1), criteria)
 
             corners_rgb_l_fine   = corners_rgb_l_fine.reshape(-1, 2)
             corners_rgb_r_fine   = corners_rgb_r_fine.reshape(-1, 2)

@@ -14,7 +14,7 @@ import time
 
 
 ACCUMULATION_MS = 60 # 100
-SATURATION = int(60 * ACCUMULATION_MS / 100)
+SATURATION = int(5 * ACCUMULATION_MS / 100) # 60
 
 class SaveEventImages:
     start_time_us: int

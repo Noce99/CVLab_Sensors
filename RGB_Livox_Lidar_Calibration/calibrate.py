@@ -138,8 +138,18 @@ def main():
 
     # RGB and Lidar Stereo Calibrate
 
+    calibration_flags = (
+        # cv2.CALIB_FIX_INTRINSIC  # If you have pre-calibrated intrinsics
+        # OR use these for better stability:
+        cv2.CALIB_RATIONAL_MODEL |
+        cv2.CALIB_THIN_PRISM_MODEL
+    )
+
     err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
-        pattern_points_repeated, cs.corners_rgb, cs.corners_lidar, None, None, None, None, rgb_image_size, flags=0)
+        pattern_points_repeated, cs.corners_rgb, cs.corners_lidar, None, None, None, None, rgb_image_size, 
+        criteria=None,
+        flags=0
+    )
 
     T = T
     R = R

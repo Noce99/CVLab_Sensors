@@ -15,7 +15,7 @@ from warp import undistort, compute_homography, warp_image
 
 
 PATTERN_SIZE = (9, 6)
-SIDE_SIZE_CM = 3.0
+SIDE_SIZE_CM = 2.1 # 3 schermo di Luca
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
@@ -109,7 +109,7 @@ def main():
     chessboards_calib_results = os.path.join(current_folder_calib_results, "chessboards")
     os.mkdir(chessboards_calib_results)
 
-    cs = CornerSelector(px_threshold=10)
+    cs = CornerSelector(px_threshold=20)
 
     for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
         rgb_l_corners_path   = os.path.join(data_folder, index_folder, "left_rgb_corners.npy")
@@ -152,6 +152,22 @@ def main():
     rgb_r = cv2.cvtColor(rgb_r, cv2.COLOR_GRAY2BGR)
     event_l = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
     event_r = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
+
+    print(f"For visual inspection I save all the corners loaded.")
+
+    all_corners_rgb_l = cv2.cvtColor(cv2.imread(   rgb_l_path,   cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
+    all_corners_rgb_r = cv2.cvtColor(cv2.imread(   rgb_r_path,   cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
+    all_corners_event_l = cv2.cvtColor(cv2.imread( event_l_path, cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
+    all_corners_event_r = cv2.cvtColor(cv2.imread( event_r_path, cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
+    for i in range(len(cs.corners_rgb_l)):
+        all_corners_rgb_l = cv2.drawChessboardCorners(all_corners_rgb_l, PATTERN_SIZE, cs.corners_rgb_l[i], True)
+        all_corners_rgb_r = cv2.drawChessboardCorners(all_corners_rgb_r, PATTERN_SIZE, cs.corners_rgb_r[i], True)
+        all_corners_event_l = cv2.drawChessboardCorners(all_corners_event_l, PATTERN_SIZE, cs.corners_event_l[i], True)
+        all_corners_event_r = cv2.drawChessboardCorners(all_corners_event_r, PATTERN_SIZE, cs.corners_event_r[i], True)
+    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_rgb_l.png"), all_corners_rgb_l)
+    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_rgb_r.png"), all_corners_rgb_r)
+    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_event_l.png"), all_corners_event_l)
+    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_event_r.png"), all_corners_event_r)
 
     print(f"rgb_l {rgb_l.shape}")
     print(f"rgb_r {rgb_r.shape}")
@@ -391,7 +407,20 @@ def main():
         rgb_event_T = rgb_event_T,
     )
 
+    # After stereoCalibrate, reproject and filter
+    total_error = 0
+    per_image_errors = []
+    for i in range(len(pattern_points_repeated)):
+        imgpoints2, _ = cv2.projectPoints(
+            pattern_points_repeated[i], 
+            rvecs[i], tvecs[i], Kl, Dl
+        )
+        err = cv2.norm(cs.corners_rgb_l[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
+        per_image_errors.append(err)
 
+    # Discard boards above threshold (e.g. 1.0 px)
+    good_indices = [i for i, e in enumerate(per_image_errors) if e < 1.0]
+    print(per_image_errors)
 
 
 if __name__ == "__main__":

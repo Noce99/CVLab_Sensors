@@ -66,12 +66,14 @@ std::string next_name = "not_set";
 
 int MAX_POINTS = 100000*100;
 int h5_file_index = 0;
-int buffer_index = 0;
+long int buffer_index = 0;
+long int timestamp_buffer_index = 0;
 std::shared_ptr<H5::H5File> h5file = nullptr;
-std::shared_ptr<H5::DataSet> dataset = nullptr;
-std::vector<int16_t> points_buffer(MAX_POINTS * 5);
-long int file_timestamp = 0;
-long int relative_time_ns = 0;
+std::shared_ptr<H5::DataSet> point_cloud_dataset = nullptr;
+std::shared_ptr<H5::DataSet> timestamp_dataset = nullptr;
+std::vector<int32_t> points_buffer(MAX_POINTS * 4);
+std::vector<uint64_t> timestamp_buffer(MAX_POINTS);
+uint64_t relative_time_ns = 0;
 
 using namespace boost::interprocess;
 
@@ -131,22 +133,6 @@ void initialize_h5_file(const std::string &file_path)
   std::string complete_file_path = file_path + "/" + std::to_string(timestamp) + ".h5";
   h5file = std::make_shared<H5::H5File>(complete_file_path, H5F_ACC_TRUNC);
 
-  hsize_t dims[2] = {
-      static_cast<hsize_t>(MAX_POINTS),
-      static_cast<hsize_t>(5) // 4 attributes: x, y, z, reflectivity, timestamp
-  };
-  H5::DataSpace dataspace(2, dims);
-
-  // H5::DSetCreatPropList prop;
-  // hsize_t chunk_dims[2] = {1024, 4}; // Chunk size
-  // prop.setChunk(2, chunk_dims);
-
-  dataset = std::make_shared<H5::DataSet>(h5file->createDataSet("point_cloud", H5::PredType::NATIVE_INT16, dataspace)); // , prop));
-  file_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-  H5::Attribute timestamp_attr = dataset->createAttribute("file_creation_timestamp", H5::PredType::NATIVE_LONG, H5::DataSpace());
-  timestamp_attr.write(H5::PredType::NATIVE_LONG, &file_timestamp);
   h5_file_index += 1;
   relative_time_ns = 0;
 }
@@ -208,7 +194,7 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         points_buffer[buffer_index++] = y;
         points_buffer[buffer_index++] = z;
         points_buffer[buffer_index++] = reflectivity;
-        points_buffer[buffer_index++] = relative_time_ns;
+        timestamp_buffer[timestamp_buffer_index++] = relative_time_ns;
 
         relative_time_ns += time_step;
       }
@@ -230,23 +216,56 @@ void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEther
         // cv::imwrite(depth_filename, depth_image);
         cv::imwrite(path_to_save, image_from_reflection_map());
 
-        last_start_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-
         depth_image.setTo(cv::Scalar(0));
         for (auto& row : reflection_map) {
           std::fill(row.begin(), row.end(), 0.0);
         }
 
         // Save current buffer to H5 file
-        dataset->write(points_buffer.data(), H5::PredType::NATIVE_INT16);
+        hsize_t point_cloud_dims[2] = {
+            static_cast<hsize_t>(int(buffer_index/4)),
+            static_cast<hsize_t>(4) // 4 attributes: x, y, z, reflectivity
+        };
+        H5::DataSpace point_cloud_dataspace(2, point_cloud_dims);
+
+        hsize_t timestamp_dims[1] = {
+            static_cast<hsize_t>(timestamp_buffer_index),
+        };
+        H5::DataSpace timestamp_dataspace(1, point_cloud_dims);
+
+        long int timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+
+        point_cloud_dataset = std::make_shared<H5::DataSet>(h5file->createDataSet("point_cloud", H5::PredType::NATIVE_INT32, point_cloud_dataspace)); // , prop));
+        H5::Attribute point_cloud_timestamp_attr = point_cloud_dataset->createAttribute("save_file_timestamp_ms", H5::PredType::NATIVE_LONG, H5::DataSpace());
+        point_cloud_timestamp_attr.write(H5::PredType::NATIVE_LONG, &timestamp);
+        H5::Attribute point_cloud_len_attr = point_cloud_dataset->createAttribute("number_of_points", H5::PredType::NATIVE_LONG, H5::DataSpace());
+        point_cloud_len_attr.write(H5::PredType::NATIVE_LONG, &buffer_index);
+
+        timestamp_dataset = std::make_shared<H5::DataSet>(h5file->createDataSet("timestamps", H5::PredType::NATIVE_UINT64, timestamp_dataspace)); // , prop));
+        H5::Attribute timestamp_timestamp_attr = timestamp_dataset->createAttribute("save_file_timestamp_ms", H5::PredType::NATIVE_LONG, H5::DataSpace());
+        timestamp_timestamp_attr.write(H5::PredType::NATIVE_LONG, &timestamp);
+        H5::Attribute timestamp_len_attr = timestamp_dataset->createAttribute("number_of_points", H5::PredType::NATIVE_LONG, H5::DataSpace());
+        timestamp_len_attr.write(H5::PredType::NATIVE_LONG, &timestamp_buffer_index);
+
+        point_cloud_dataset->write(points_buffer.data(), H5::PredType::NATIVE_INT32);
+        timestamp_dataset->write(timestamp_buffer.data(), H5::PredType::NATIVE_UINT64);
         h5file->close();
+
+        std::cout << "LAST relative_time_ns = " << relative_time_ns / 1000000000. << std::endl;
 
         // Initialize new H5 file
         initialize_h5_file(FOLDER_TO_SAVE + "/lidar_raw");
 
         // Reset buffer index and add current point
         buffer_index = 0;
+        timestamp_buffer_index = 0;
+
+        last_start_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+        std::cout << "POINTS = " << points << std::endl;
+        points = 0;
     }
 
   }else if (data->data_type == kLivoxLidarCartesianCoordinateLowData) {

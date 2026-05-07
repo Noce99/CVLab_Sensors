@@ -158,7 +158,7 @@ def main():
             os.mkdir(subfolder_path)
 
             corners_lidar_fine = corner_lidar# cv2.cornerSubPix(lidar, corner_lidar, (11,11), (-1,-1), criteria)
-            corner_rgb_fine    = cv2.cornerSubPix(rgb, corner_rgb, (11,11), (-1,-1), criteria)
+            corner_rgb_fine    = corner_rgb# cv2.cornerSubPix(rgb, corner_rgb, (11,11), (-1,-1), criteria)
 
             corners_lidar_fine   = corners_lidar_fine.reshape(-1, 2)
             corner_rgb_fine      = corner_rgb_fine.reshape(-1, 2)
