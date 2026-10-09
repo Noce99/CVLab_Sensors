@@ -11,7 +11,7 @@ from typing import List, Tuple
 from scipy.spatial.transform import Rotation
 
 
-PATTERN_SIZE = (8, 6)
+PATTERN_SIZE = (9, 6)
 SIDE_SIZE_CM = 2.9
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
@@ -96,7 +96,7 @@ def main():
     chessboards_calib_results = os.path.join(current_folder_calib_results, "chessboards")
     os.mkdir(chessboards_calib_results)
 
-    cs = CornerSelector(px_threshold=10)
+    cs = CornerSelector(px_threshold=0)
 
     for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
         if index_folder == "discarded":

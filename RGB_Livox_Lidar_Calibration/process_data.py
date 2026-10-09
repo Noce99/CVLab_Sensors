@@ -8,7 +8,7 @@ from functools import partial
 import numpy as np
 
 
-PATTERN_SIZE = (8, 6)
+PATTERN_SIZE = (9, 6)
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
@@ -135,7 +135,7 @@ def main():
         rgb = set_new_size(width, height, rgb)
         lidar = set_new_size(width, height, lidar)    
 
-        # lidar = adjust_gamma(lidar, gamma=1.9) # 23
+        # lidar = adjust_gamma(lidar, gamma=15.0) # 23
 
         # lidar[lidar > 100] = 255
         # lidar[lidar <= 100] = 0
