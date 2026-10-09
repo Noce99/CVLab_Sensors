@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RGB-Event Calibration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <h1>RGB-Event calibration</h1>
+            <span class="muted">Saving to <code id="folder">-</code></span>
+        </div>
+        <div class="stats">
+            <div class="stat"><span class="stat-value" id="n-boards">0</span><span class="stat-label">boards</span></div>
+            <div class="stat"><span class="stat-value" id="n-near">0</span><span class="stat-label">near</span></div>
+            <div class="stat"><span class="stat-value" id="n-mid">0</span><span class="stat-label">mid</span></div>
+            <div class="stat"><span class="stat-value" id="n-far">0</span><span class="stat-label">far</span></div>
+        </div>
+        <div class="actions">
+            <label class="toggle"><input type="checkbox" id="show-coverage" checked> Coverage overlay</label>
+            <button id="capture" class="btn-capture">Capture <kbd>Space</kbd></button>
+        </div>
+    </header>
+
+    <main>
+        <section class="cameras" id="cameras"></section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Last capture</h2>
+                <span id="capture-message" class="message"></span>
+            </div>
+            <div class="capture-strip" id="capture-strip"></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Saved boards</h2>
+                <span class="muted">Click to view, × to delete. calibrate.py needs at least 10.</span>
+            </div>
+            <div class="samples" id="samples"></div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='calibration.js') }}"></script>
+</body>
+</html>

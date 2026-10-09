@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cvlab import config, events
-from cvlab.calibration import find_corners, to_calibration_size
+from cvlab.calibration import find_corners_variants, find_event_corners, to_calibration_size
 
 PROCESSED_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_data")
 
@@ -43,18 +43,14 @@ def closest(timestamps, t):
     return int(timestamps[j]), abs(int(timestamps[j]) - t)
 
 
-def adjust_gamma(image, gamma=1.0):
-    """gamma > 1: darker, gamma < 1: brighter."""
-    table = np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
-    return cv2.LUT(image, table)
-
-
 def find_rgb_corners(gray):
-    corners = find_corners(gray)
-    if corners is None:
-        # Chessboard shown on a screen: helps when the board is over-exposed
-        corners = find_corners(adjust_gamma(cv2.GaussianBlur(gray, (5, 5), 0), gamma=10))
-    return corners
+    """(corners, image they were found in) like find_event_corners."""
+    return find_corners_variants(gray, config.CHESSBOARD_VARIANTS["rgb"])[0], gray
+
+
+def find_event_frames_corners(frames):
+    corners, _, image = find_event_corners(frames)
+    return corners, image
 
 
 def load_rgb(path):
@@ -90,9 +86,11 @@ def main():
     counters = {"rgb_left": 0, "rgb_right": 0, "event_left": 0, "event_right": 0, "all": 0, "inactive_events": 0}
     pool = ThreadPoolExecutor(max_workers=4)
 
-    frames = events.stereo_frames_at(session, list(pairs))
+    frames = events.stereo_frames_at(session, list(pairs), window_us=events.CALIBRATION_FRAMES_WINDOW_US,
+                                     render=events.calibration_frames)
     for t, event_l, event_r in tqdm(frames, total=len(pairs), desc="Searching chessboards"):
-        if events.activation(event_l) < events.MIN_ACTIVATION or events.activation(event_r) < events.MIN_ACTIVATION:
+        if (events.activation(event_l["count"]) < events.MIN_ACTIVATION
+                or events.activation(event_r["count"]) < events.MIN_ACTIVATION):
             counters["inactive_events"] += 1
             continue
         t_right, dt_right = pairs[t]
@@ -101,9 +99,11 @@ def main():
 
         images = {"rgb_left": rgb_l, "rgb_right": rgb_r, "event_left": event_l, "event_right": event_r}
         finders = {"rgb_left": find_rgb_corners, "rgb_right": find_rgb_corners,
-                   "event_left": find_corners, "event_right": find_corners}
+                   "event_left": find_event_frames_corners, "event_right": find_event_frames_corners}
         futures = {k: pool.submit(finders[k], img) for k, img in images.items()}
-        corners = {k: f.result() for k, f in futures.items()}
+        found = {k: f.result() for k, f in futures.items()}
+        corners = {k: c for k, (c, _) in found.items()}
+        images = {k: image for k, (_, image) in found.items()}
         for k, c in corners.items():
             counters[k] += c is not None
         if any(c is None for c in corners.values()):

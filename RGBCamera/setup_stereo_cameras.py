@@ -69,6 +69,7 @@ def setup_stereo_cameras(camera):
     # Auto Function #
     #################
     camera.AutoFunctionProfile.Value = "MinimizeExposureTime"
+    camera.AutoTargetBrightness.Value = config.RGB_AUTO_TARGET_BRIGHTNESS
 
     ##########
     # Colors #

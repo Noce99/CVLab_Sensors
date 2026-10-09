@@ -16,4 +16,6 @@ CVLab_live_imgs/20*
 CVLab_live_imgs/*.zip
 CVLab_live_imgs/*.png
 CVLab_live_imgs/*.npz
+prophecee_venv/failed_captures/
+RGB_Event_Calibration/failed_captures/
 prophecee_venv/

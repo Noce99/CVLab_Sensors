@@ -64,6 +64,7 @@ RGB_PIXEL_FORMAT = "RGB8"
 RGB_EXPOSURE_LOWER_US = 20.0
 RGB_EXPOSURE_UPPER_US = 4000.0
 RGB_GAIN_UPPER_DB = 24.0
+RGB_AUTO_TARGET_BRIGHTNESS = 0.5   # 0-1, mean level the auto exposure/gain aims for (camera default: 0.3)
 
 # PTP: cameras must be PTP slaves with an offset below this before grabbing
 RGB_REQUIRE_PTP = True
@@ -84,6 +85,10 @@ EVENT_RIGHT_SERIAL = "00051961"
 # Record the EVK4 trigger input (MAIN channel). Wire a Basler output line
 # (LineSource = ExposureActive) into it to timestamp every RGB exposure in the event clock.
 EVENT_TRIGGER_IN = False
+# Hardware event rate cap (ERC) of each EVK4 in the live calibration tool, in events/s.
+# Flickering scenes reach 60 Mev/s, more than the tool can render live. Beyond the cap the
+# sensor drops events evenly in time. The recorder does not use it (None = no cap).
+EVENT_CALIBRATION_MAX_RATE = 20_000_000
 # Pixels masked in hardware (x, y). Find them with get_data/find_hot_pixels.py.
 EVENT_HOT_PIXELS = {
     EVENT_LEFT_SERIAL: [(1186, 491), (397, 348), (798, 380)],  # 87% of all events on 2026-10-09
@@ -116,6 +121,27 @@ LIDAR_TO_CAMERA_AXES = {
 
 PATTERN_SIZE = (9, 6)       # inner corners (cols, rows)
 SQUARE_SIZE_MM = 29.0
+
+# Chessboard search: (gamma, blur kernel, CLAHE clip limit) variants tried in order until one
+# finds the board. gamma < 1 brightens, > 1 darkens; blur 0 = none; CLAHE 0 = none (16x16 tiles).
+# Measured on the 2026-10-09 recordings:
+# RGB: brightening (or a light blur) finds 2.5x more boards than the plain image. CLAHE finds
+# the faint board of a blinking screen caught while switching (11/16 frames, plain 2/16).
+# gamma 10 is for a chessboard on an overexposed screen.
+# Events are searched in several renderings of the same window (cvlab.events.calibration_frames),
+# in the order of EVENT_RENDERINGS:
+#   event_lockin    ON - OFF per pixel, phase-aligned over 100 ms (blinking board faster than
+#                   the window: the squares blinking in opposite phase end up white / black)
+#   event_polarity  ON - OFF events per pixel over 60 ms (blinking board, one blink in the window)
+#   event_count     events per pixel, both polarities (moving board: its edges)
+CHESSBOARD_VARIANTS = {
+    "rgb": [(1.0, 0, 0), (0.5, 0, 0), (0.3, 0, 0), (1.0, 5, 0), (1.0, 5, 16), (1.0, 0, 8), (10.0, 5, 0)],
+    "event_count": [(1.0, 0, 0), (2.0, 0, 0), (3.0, 5, 0), (0.5, 5, 0)],
+    # Gaussian blur turns the speckle into flat squares: found 30/30 synthetic boards (raw: 26/30)
+    "event_polarity": [(1.0, 13, 0), (1.0, 17, 0)],
+    "event_lockin": [(1.0, 0, 0), (1.0, 5, 0), (1.0, 9, 0)],
+}
+EVENT_RENDERINGS = ["lockin", "polarity", "count"]
 
 # RGB images are center-cropped to 16:9 and resized to the event resolution
 # before calibration; every consumer of the calibration must do the same.

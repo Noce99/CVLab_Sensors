@@ -103,6 +103,31 @@ def open_device(serial, status):
     return None
 
 
+def mask_hot_pixels(device, serial):
+    """Mask the EVENT_HOT_PIXELS of this camera in hardware; returns the configured list."""
+    hot_pixels = config.EVENT_HOT_PIXELS.get(serial, [])
+    if hot_pixels:
+        masks = device.get_i_digital_event_mask().get_pixel_masks()
+        if len(hot_pixels) > len(masks):
+            print(f"WARNING: {len(hot_pixels)} hot pixels but only {len(masks)} hardware masks")
+        for mask, (x, y) in zip(masks, hot_pixels):
+            mask.set_mask(x, y, True)
+        print(f"Masked hot pixels: {hot_pixels[:len(masks)]}")
+    return hot_pixels
+
+
+def limit_event_rate(device, rate):
+    """Cap the event rate in hardware (ERC), in events/s; None disables the cap."""
+    erc = device.get_i_erc_module()
+    if erc is None:
+        print("WARNING: no ERC module, event rate not capped")
+        return
+    if rate is not None:
+        erc.set_cd_event_rate(int(rate))
+    erc.enable(rate is not None)
+    print(f"Event rate cap: {f'{rate / 1e6:.0f} Mev/s' if rate is not None else 'off'}")
+
+
 def record(serial, name, session, status):
     device = open_device(serial, status)
     if device is None:
@@ -110,14 +135,7 @@ def record(serial, name, session, status):
 
     events_stream = device.get_i_events_stream()
     try:
-        hot_pixels = config.EVENT_HOT_PIXELS.get(serial, [])
-        if hot_pixels:
-            masks = device.get_i_digital_event_mask().get_pixel_masks()
-            if len(hot_pixels) > len(masks):
-                print(f"WARNING: {len(hot_pixels)} hot pixels but only {len(masks)} hardware masks")
-            for mask, (x, y) in zip(masks, hot_pixels):
-                mask.set_mask(x, y, True)
-            print(f"Masked hot pixels: {hot_pixels[:len(masks)]}")
+        hot_pixels = mask_hot_pixels(device, serial)
 
         if config.EVENT_TRIGGER_IN:
             trigger_in = device.get_i_trigger_in()

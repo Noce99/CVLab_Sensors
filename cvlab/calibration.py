@@ -61,6 +61,48 @@ def find_corners(gray, subpix=True):
     return canonical_corners(corners)
 
 
+def adjust_gamma(image, gamma=1.0):
+    """gamma > 1: darker, gamma < 1: brighter."""
+    table = np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(image, table)
+
+
+def find_corners_variants(gray, variants, subpix=True):
+    """find_corners on (gamma, blur, clahe) variants of the image, in order (see CHESSBOARD_VARIANTS).
+
+    Returns (corners, variant) for the first variant that finds the board, or (None, None).
+    """
+    for gamma, blur, clahe in variants:
+        image = cv2.GaussianBlur(gray, (blur, blur), 0) if blur else gray
+        if clahe:
+            image = cv2.createCLAHE(clahe, (16, 16)).apply(image)
+        if gamma != 1.0:
+            image = adjust_gamma(image, gamma)
+        corners = find_corners(image, subpix=subpix)
+        if corners is not None:
+            return corners, (gamma, blur, clahe)
+    return None, None
+
+
+def find_event_corners(frames):
+    """Chessboard in an event window, in its renderings (events.calibration_frames) in the
+    order of EVENT_RENDERINGS.
+
+    Returns (corners, (gamma, blur, clahe, rendering), image the corners were found in),
+    or (None, None, count frame).
+
+    No cornerSubPix: findChessboardCornersSB is already sub-pixel, and on speckled event
+    images cornerSubPix pulls the corners off (synthetic blinking boards: 1.4 px RMS error
+    with it, 0.55 px without).
+    """
+    for rendering in config.EVENT_RENDERINGS:
+        corners, variant = find_corners_variants(frames[rendering], config.CHESSBOARD_VARIANTS[f"event_{rendering}"],
+                                                 subpix=False)
+        if corners is not None:
+            return corners, (*variant, rendering), frames[rendering]
+    return None, None, frames["count"]
+
+
 def stereo_rectify_maps(K1, D1, K2, D2, R, T, image_size, alpha=0):
     R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(K1, D1, K2, D2, image_size, R, T, alpha=alpha)
     maps1 = cv2.initUndistortRectifyMap(K1, D1, R1, P1, image_size, cv2.CV_16SC2)

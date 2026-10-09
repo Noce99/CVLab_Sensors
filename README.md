@@ -68,6 +68,15 @@ camera can produce more than USB2 can carry. Hot pixels are masked in hardware
 (`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `get_data/find_hot_pixels.py`).
 
 ## RGB-Event calibration
+**Live (web tool)**: stop the recorders, then `venv_3_12/bin/python RGB_Event_Calibration/calibration_server.py`
+and open http://<NUC_IP>:5001. It shows the 4 cameras live; **Capture** (or Space) looks for the
+chessboard in all four and saves the board to `RGB_Event_Calibration/processed_data/<date>/` when
+all four see it. Each view shows the boards saved so far and which areas are still uncovered
+(red cells), and how old its image is. The event cameras only see changes: use a blinking chessboard (on a screen) or move the board. Then run step 3.
+`--resume` adds boards to the latest folder. The event rate is capped in hardware at
+`EVENT_CALIBRATION_MAX_RATE` (20 Mev/s, `cvlab/config.py`) so the tool keeps up with flickering scenes.
+
+**From a recording**:
 1. Record the chessboard (29 mm squares), moving it around: `get_data/get_data.py --only rgb event`
 2. `RGB_Event_Calibration/process_calibration_data.py [session]`
 3. `RGB_Event_Calibration/calibrate.py` (installs `CVLab_live_imgs/rgb_event_calibration.npz`)
