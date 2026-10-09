@@ -1,9 +1,9 @@
 # CVLab Sensors
 
-| Computers | ssh                    | Password |
-| --------  | -------                | -------   |
-| Orin      | `ssh cvlab@192.168.1.49` | cvlabsensors |
-| Nuc       | `ssh ubm@192.168.1.50`   | ubm12345 |
+| Computers | ssh                      |
+| --------  | -------                  |
+| Orin      | `ssh cvlab@192.168.1.49` |
+| Nuc       | `ssh ubm@192.168.1.50`   |
 
 | Sensor Type | Sensor Name | SDK | Connection | IP | Instructions |
 | --------    | -------     | -------   | ------- | ------- | ------- |
@@ -33,7 +33,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ptp4l-cvlab
 journalctl -u ptp4l-cvlab -f
 ```
 - **Basler**: the RGB recorder refuses to record until both cameras are PTP `Slave` + `Locked`
-  (use `--allow-unsynced` to record anyway).
+  (use `--allow-unsynced` to record anyway). Frames are triggered by the PTP clock
+  (`RGB_PTP_TRIGGER`), so left and right expose at the same instant (measured: < 0.2 ms apart).
 - **Livox HAP**: needs PTP over L2 (set in `ptp4l.conf`); each H5 file stores `time_source` (`livox_ptp` when synced).
 - Check everything with `get_data/check_ptp.py`.
 - **Hesai XT32**: keep its clock source on GPS (free running). It cannot follow a two-step PTP

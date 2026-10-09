@@ -1,9 +1,9 @@
 # CVLab Sensors
 
-| Computers | ssh                    | Password |
-| --------  | -------                | -------   |
-| Orin      | `ssh cvlab@192.168.1.49` | cvlabsensors |
-| Nuc       | `ssh ubm@192.168.1.50`   | ubm12345 |
+| Computers | ssh                      |
+| --------  | -------                  |
+| Orin      | `ssh cvlab@192.168.1.49` |
+| Nuc       | `ssh ubm@192.168.1.50`   |
 
 | Sensor Type | Sensor Name | Ros2 Node | Connection | IP | Instructions |
 | --------    | -------     | -------   | ------- | ------- | ------- |

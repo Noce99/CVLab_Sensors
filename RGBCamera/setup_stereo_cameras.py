@@ -31,8 +31,24 @@ def setup_stereo_cameras(camera):
     #######
     # FPS #
     #######
-    camera.AcquisitionFrameRateEnable.Value = True
-    camera.AcquisitionFrameRate.Value = config.RGB_FPS
+    if config.RGB_PTP_TRIGGER:
+        # Frame start on every tick of a periodic signal derived from the PTP clock:
+        # all PTP-locked cameras fire at the same instants
+        camera.AcquisitionFrameRateEnable.Value = False
+        camera.BslPeriodicSignalSelector.Value = "PeriodicSignal1"
+        # Read-only (fixed to PtpClock) while PTP is enabled
+        if camera.BslPeriodicSignalSource.Value != "PtpClock":
+            raise RuntimeError("Periodic signal is not driven by the PTP clock: is PTP enabled?")
+        camera.BslPeriodicSignalPeriod.Value = 1e6 / config.RGB_FPS
+        camera.BslPeriodicSignalDelay.Value = 0
+        camera.TriggerSelector.Value = "FrameStart"
+        camera.TriggerSource.Value = "PeriodicSignal1"
+        camera.TriggerMode.Value = "On"
+    else:
+        camera.TriggerSelector.Value = "FrameStart"
+        camera.TriggerMode.Value = "Off"
+        camera.AcquisitionFrameRateEnable.Value = True
+        camera.AcquisitionFrameRate.Value = config.RGB_FPS
 
     ############
     # Exposure #

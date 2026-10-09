@@ -52,6 +52,9 @@ RGB_STREAM = {
 }
 
 RGB_FPS = 10
+# Trigger every frame from the PTP clock (Basler Periodic Signal): with both cameras
+# PTP-locked, left and right expose at the same instant, on multiples of 1/RGB_FPS s.
+RGB_PTP_TRIGGER = True
 # Region of interest, as a fraction of the full 2448x2048 sensor (centered)
 RGB_SENSOR_SIZE = (2448, 2048)
 RGB_ROI_FRACTION = (0.8, 0.6)
@@ -69,7 +72,7 @@ RGB_PTP_TIMEOUT_S = 60
 
 # Saving
 RGB_PNG_COMPRESSION = 1     # 0-9, low = fast
-RGB_WRITER_THREADS = 4
+RGB_WRITER_THREADS = 6
 RGB_QUEUE_SIZE = 60         # frames waiting to be written; beyond this frames are dropped (and counted)
 
 # ============================================================================
