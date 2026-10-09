@@ -15,8 +15,10 @@
                 <button id="refresh-all" class="btn btn-primary">🔄 Aggiorna Tutto</button>
                 <button id="start-all" class="btn btn-success">▶ Avvia Tutto</button>
                 <button id="stop-all" class="btn btn-danger">⏹ Ferma Tutto</button>
-                <button id="clear-all"  class="btn btn-secondary"> Cancella Img salvate</button>
-                <button id="move-all" class="btn btn-secondary"> Sposta Img </button>
+                <button id="clear-all" class="btn btn-danger">🗑 Cancella sessione</button>
+                <button id="move-all" class="btn btn-secondary">💾 Salva sessione</button>
+                <span>Sessione: <strong id="session-name">-</strong></span>
+                <span>Disco: <strong id="disk-free">-</strong></span>
             </div>
         </header>
 
@@ -33,9 +35,10 @@
                         <div class="loading" id="loading-rgb_left">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-rgb_left">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-rgb_left">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-rgb_left">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-rgb_left"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('rgb')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('rgb')">⏹ Stop</button>
@@ -56,9 +59,10 @@
                         <div class="loading" id="loading-rgb_right">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-rgb_right">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-rgb_right">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-rgb_right">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-rgb_right"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('rgb')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('rgb')">⏹ Stop</button>
@@ -79,9 +83,10 @@
                         <div class="loading" id="loading-event_left">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-event_left">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-event_left">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-event_left">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-event_left"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('event')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('event')">⏹ Stop</button>
@@ -102,9 +107,10 @@
                         <div class="loading" id="loading-event_right">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-event_right">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-event_right">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-event_right">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-event_right"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('event')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('event')">⏹ Stop</button>
@@ -125,9 +131,10 @@
                         <div class="loading" id="loading-lidar_livox">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-lidar_livox">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-lidar_livox">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-lidar_livox">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-lidar_livox"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('lidar_livox')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('lidar_livox')">⏹ Stop</button>
@@ -148,9 +155,10 @@
                         <div class="loading" id="loading-lidar_hesai">Caricamento...</div>
                     </div>
                     <div class="info">
-                        <span class="info-item">FPS: <strong id="fps-lidar_hesai">-</strong></span>
+                        <span class="info-item">Rate: <strong id="fps-lidar_hesai">-</strong></span>
                         <span class="info-item">Ultimo: <strong id="time-lidar_hesai">-</strong></span>
                     </div>
+                    <div class="error-msg" id="error-lidar_hesai"></div>
                     <div class="controls">
                         <button class="btn btn-sm btn-success" onclick="startCameraType('lidar_hesai')">▶ Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopCameraType('lidar_hesai')">⏹ Stop</button>

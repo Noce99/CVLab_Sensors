@@ -2,392 +2,242 @@
 Camera Monitoring Server
 =========================
 
-Flask-based web server for monitoring and recording data from multiple sensors:
-- RGB stereo cameras (Basler, via pypylon)
-- Event stereo cameras (Prophesee, via Metavision SDK)
-- LiDAR Livox
-- LiDAR Hesai
+Flask dashboard to start/stop the sensor recorders and monitor them:
+- RGB stereo cameras (Basler)          get_data/rgb.py
+- Event stereo cameras (Prophesee)     get_data/event.py
+- LiDAR Livox / Hesai                  get_data/cpp/save_point_cloud_{livox,hesai}
 
+The recorders are the same ones used by get_data/get_data.py. Each Start
+opens a recording session (if none is open) in get_data/data/<session>;
+"Save" moves it to CVLab_live_imgs/, "Discard" deletes it.
 """
 
-from flask import Flask, render_template, jsonify, send_file
-from flask_cors import CORS
 import base64
-import io
-import threading
-import time
-from datetime import datetime
-import numpy as np
-import cv2
 import os
 import sys
-import subprocess
-import glob
-import shutil
-from Reader_lidar import load_latest_lidar_frame
-from Reader_event import load_latest_event_frame
+import threading
 
-from rgb import RGBStereoManager
-from event import EventStereoManager
-from lidar_hesai import LidarHesaiManager
-from lidar_livox import LidarLivoxManager
+import cv2
+from flask import Flask, jsonify, render_template
+from flask_cors import CORS
 
-from utils import Saver
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cvlab import lidar
+from cvlab import config
+from cvlab.recording import (build_recorders, check_recorders_exist, create_session,
+                             discard_session, free_disk_gb, save_session)
 
-# Initialize Flask application
 app = Flask(__name__)
-CORS(app)  # Enable Cross-Origin Resource Sharing
+CORS(app)
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
+# --allow-unsynced: record RGB even without PTP (until ptp4l is set up)
+recorder_groups = build_recorders(allow_unsynced="--allow-unsynced" in sys.argv)
+recorders = [r for group in recorder_groups.values() for r in group]
+outputs = {out: r for r in recorders for out in r.outputs}
 
-# Global camera status dictionary
-# Stores current state, FPS, last update time, and latest frame for each sensor
-camera_status = {
-    'rgb_left': {'active': False, 'last_update': None, 'fps': 0, 'frame': None},
-    'rgb_right': {'active': False, 'last_update': None, 'fps': 0, 'frame': None},
-    'event_left': {'active': False, 'last_update': None, 'fps': 0, 'frame': None},
-    'event_right': {'active': False, 'last_update': None, 'fps': 0, 'frame': None},
-    'lidar_livox': {'active': False, 'last_update': None, 'fps': 0, 'frame': None},
-    'lidar_hesai': {'active': False, 'last_update': None, 'fps': 0, 'frame': None}
-}
+session_lock = threading.Lock()
+current_session = None
 
-# Thread safety lock for accessing camera_status
-status_lock = threading.Lock()
+# Lidar previews are rendered from the newest H5 file, cached by file path
+lidar_preview_cache = {}
 
-# Output directory for live frame storage
-LIVE_IMGS_PATH = "./live_imgs"
 
-# Dictionary to store camera manager instances
-camera_managers = {}
+disk_stopped = threading.Event()
 
-# ============================================================================
-# INITIALIZE CAMERA MANAGERS
-# ============================================================================
 
-saver = Saver(LIVE_IMGS_PATH)
+def disk_guard():
+    """Stop every recorder when the staging disk is almost full."""
+    while True:
+        if any_running() and free_disk_gb() < config.MIN_FREE_DISK_GB:
+            print(f"WARNING: less than {config.MIN_FREE_DISK_GB} GB free, stopping all recorders")
+            disk_stopped.set()
+            stop_all()
+        threading.Event().wait(1.0)
 
-camera_managers['rgb'] = RGBStereoManager(camera_status, status_lock, saver)
-camera_managers['event'] = EventStereoManager(camera_status, status_lock, saver)
-camera_managers['lidar_livox'] = LidarLivoxManager(camera_status, status_lock, saver)
-camera_managers['lidar_hesai'] = LidarHesaiManager(camera_status, status_lock, saver)
+
+def any_running():
+    return any(r.is_running() for r in recorders)
+
+
+def busy_response(action):
+    return jsonify({"status": "error", "error": f"Stop all sensors before you {action} the session"}), 409
 
 
 # ============================================================================
-# FLASK ROUTES
+# STATUS / FRAMES
 # ============================================================================
 
-@app.route('/')
+@app.route("/")
 def index():
-    """
-    Serve main dashboard HTML page.
-    
-    Returns:
-        HTML template
-    """
-    return render_template('dashboard.html')
+    return render_template("dashboard.html")
 
 
-@app.route('/api/status')
+@app.route("/api/status")
 def get_status():
-    """
-    Get current status of all cameras.
-    
-    Returns:
-        JSON object with status for each camera including:
-        - active: boolean indicating if camera is running
-        - last_update: timestamp of last frame
-        - fps: current frames per second
-    """
-    with status_lock:
-        status = {
-            camera: {
-                'active': info['active'],
-                'last_update': info['last_update'],
-                'fps': info['fps']
-            }
-            for camera, info in camera_status.items()
-        }
-    return jsonify(status)
+    status = {}
+    for r in recorders:
+        status.update(r.status())
+    for out, recorder in outputs.items():
+        status[out]["running"] = recorder.is_running()
+    return jsonify({
+        "sensors": status,
+        "session": current_session.name if current_session else None,
+        "recording": any_running(),
+        "disk_free_gb": round(free_disk_gb(), 1),
+        "disk_stopped": disk_stopped.is_set(),
+    })
 
 
-@app.route('/api/frame/<camera_name>')
+def latest_lidar_preview(folder):
+    chunks = lidar.list_chunks(folder)
+    if not chunks:
+        return None
+    path = chunks[-1][1]
+    if path not in lidar_preview_cache:
+        lidar_preview_cache.clear()
+        lidar_preview_cache[path] = lidar.render_chunk(path, dot_radius=2)
+    return lidar_preview_cache[path]
+
+
+@app.route("/api/frame/<camera_name>")
 def get_frame(camera_name):
-    """
-    Get latest frame from specific camera.
-    
-    Args:
-        camera_name (str): Camera identifier
-    
-    Returns:
-        JSON object with base64-encoded JPEG frame and timestamp
-        404 if camera not found or no frame available
-    """
-    if camera_name not in camera_status:
-        return jsonify({'error': 'Camera not found'}), 404
+    if camera_name not in outputs:
+        return jsonify({"error": "Camera not found"}), 404
+    if current_session is None:
+        return jsonify({"error": "No session"}), 404
 
-    # I lidar salvano in H5: legge e converte l'ultimo file ad ogni richiesta
-    if camera_name == 'lidar_livox':
-        frame = load_latest_lidar_frame(
-            os.path.join(LIVE_IMGS_PATH, 'lidar_livox'),
-            cv2.COLORMAP_JET
-        )
-    elif camera_name == 'lidar_hesai':
-        frame = load_latest_lidar_frame(
-            os.path.join(LIVE_IMGS_PATH, 'lidar_hesai'),
-            cv2.COLORMAP_TURBO
-        )
-    # Le event camera salvano in .raw: legge e converte l'ultimo file ad ogni richiesta
-    elif camera_name == 'event_left':
-        frame = load_latest_event_frame(os.path.join(LIVE_IMGS_PATH, 'event_left'))
-    elif camera_name == 'event_right':
-        frame = load_latest_event_frame(os.path.join(LIVE_IMGS_PATH, 'event_right'))
-    else:
-        with status_lock:
-            frame = camera_status[camera_name]['frame']
-
-        # Se il frame in memoria è None (es. server riavviato),
-        # cerca l'ultimo file .png su disco come fallback
+    if camera_name.startswith("lidar"):
+        frame = latest_lidar_preview(current_session / camera_name)
         if frame is None:
-            cam_folder = os.path.join(LIVE_IMGS_PATH, camera_name)
-            if os.path.exists(cam_folder):
-                png_files = []
-                for filename in os.listdir(cam_folder):
-                    if filename.endswith(".png") or filename.endswith(".jpg"):
-                        png_files.append(os.path.join(cam_folder, filename))
-                if png_files:
-                    png_files.sort()
-                    frame = cv2.imread(png_files[-1])
-
-    if frame is None:
-        return jsonify({'error': 'No frame available'}), 404
-
-    # Encode frame as JPEG with 85% quality
-    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-
-    # Convert to base64 for transmission
-    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+            return jsonify({"error": "No frame available"}), 404
+        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        data = buffer.tobytes()
+    else:
+        try:
+            data = (current_session / "previews" / f"{camera_name}.jpg").read_bytes()
+        except OSError:
+            return jsonify({"error": "No frame available"}), 404
 
     return jsonify({
-        'frame': f'data:image/jpeg;base64,{frame_base64}',
-        'timestamp': camera_status[camera_name]['last_update']
+        "frame": f"data:image/jpeg;base64,{base64.b64encode(data).decode('utf-8')}",
+        "timestamp": outputs[camera_name].status()[camera_name]["last_update"],
     })
 
 
-@app.route('/api/start/<camera_type>')
+# ============================================================================
+# CONTROL
+# ============================================================================
+
+def start_group(group):
+    global current_session
+    if free_disk_gb() < config.MIN_FREE_DISK_GB:
+        raise RuntimeError(f"Only {free_disk_gb():.1f} GB free: free some space first")
+    disk_stopped.clear()
+    with session_lock:
+        if current_session is None:
+            current_session = create_session()
+            print(f"INFO: new session {current_session}")
+        return [r.start(current_session) for r in recorder_groups[group]]
+
+
+@app.route("/api/start/<camera_type>", methods=["POST"])
 def start_camera(camera_type):
-    """
-    Start camera acquisition for specified type.
-    
-    Args:
-        camera_type (str): Camera type (rgb, event, lidar_livox, lidar_hesai)
-    
-    Returns:
-        JSON object with operation status
-        404 if camera type not found
-        500 if operation fails
-    """
-    if camera_type not in camera_managers:
-        return jsonify({'error': f'Camera type not found: {camera_type}'}), 404
-    
+    if camera_type not in recorder_groups:
+        return jsonify({"error": f"Camera type not found: {camera_type}"}), 404
     try:
-        success = camera_managers[camera_type].start()
-        if success:
-            return jsonify({
-                'status': 'started', 
-                'camera': camera_type,
-                'message': f'{camera_type} cameras started successfully'
-            })
-        else:
-            return jsonify({
-                'status': 'already_running',
-                'camera': camera_type,
-                'message': f'{camera_type} cameras already running'
-            })
+        started = start_group(camera_type)
+        return jsonify({"status": "started" if any(started) else "already_running", "camera": camera_type})
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'camera': camera_type,
-            'error': str(e)
-        }), 500
+        return jsonify({"status": "error", "camera": camera_type, "error": str(e)}), 500
 
 
-@app.route('/api/stop/<camera_type>')
+@app.route("/api/stop/<camera_type>", methods=["POST"])
 def stop_camera(camera_type):
-    """
-    Stop camera acquisition for specified type.
-    
-    Args:
-        camera_type (str): Camera type (rgb, event, lidar_livox, lidar_hesai)
-    
-    Returns:
-        JSON object with operation status
-        404 if camera type not found
-        500 if operation fails
-    """
-    if camera_type not in camera_managers:
-        return jsonify({'error': f'Camera type not found: {camera_type}'}), 404
-    
-    try:
-        camera_managers[camera_type].stop()
-        return jsonify({
-            'status': 'stopped',
-            'camera': camera_type,
-            'message': f'{camera_type} cameras stopped successfully'
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'camera': camera_type,
-            'error': str(e)
-        }), 500
+    if camera_type not in recorder_groups:
+        return jsonify({"error": f"Camera type not found: {camera_type}"}), 404
+    for r in recorder_groups[camera_type]:
+        r.stop()
+    return jsonify({"status": "stopped", "camera": camera_type})
 
 
-@app.route('/api/start_all')
+@app.route("/api/start_all", methods=["POST"])
 def start_all():
-    """
-    Start all camera acquisitions.
-    
-    Returns:
-        JSON object with results for each camera type
-    """
     results = {}
-    for camera_type, manager in camera_managers.items():
+    for group in recorder_groups:
         try:
-            manager.start()
-            results[camera_type] = 'started'
+            results[group] = "started" if any(start_group(group)) else "already_running"
         except Exception as e:
-            results[camera_type] = f'error: {str(e)}'
-    
-    return jsonify({
-        'status': 'completed',
-        'results': results
-    })
+            results[group] = f"error: {e}"
+    return jsonify({"status": "completed", "results": results})
 
 
-@app.route('/api/stop_all')
 def stop_all():
-    """
-    Stop all camera acquisitions.
-    
-    Returns:
-        JSON object with results for each camera type
-    """
-    results = {}
-    for camera_type, manager in camera_managers.items():
-        try:
-            manager.stop()
-            results[camera_type] = 'stopped'
-        except Exception as e:
-            results[camera_type] = f'error: {str(e)}'
-    
-    return jsonify({
-        'status': 'completed',
-        'results': results
-    })
+    # Stop in parallel: each recorder may need a few seconds to flush
+    threads = [threading.Thread(target=r.stop) for r in recorders]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
-@app.route('/api/clear_all')
+@app.route("/api/stop_all", methods=["POST"])
+def stop_all_route():
+    stop_all()
+    return jsonify({"status": "completed"})
+
+
+@app.route("/api/clear_all", methods=["POST"])
 def clear_all():
-    """
-    Clear all camera acquisitions.
-    
-    
-    """
-
-    cartella = "./live_imgs"
-
-    for nome_cartella in os.listdir(cartella):
-        for nome_file in os.listdir(os.path.join(cartella, nome_cartella)):
-            percorso = os.path.join(cartella, nome_cartella, nome_file)
-            try:
-                os.remove(percorso) 
-            except Exception as e:
-                print(f"Exception = {e}")
-                print("WARNING: img non cancellata correttamente")
+    """Discard the current session (all its data is deleted)."""
+    global current_session
+    with session_lock:
+        if any_running():
+            return busy_response("discard")
+        if current_session is None:
+            return jsonify({"status": "completed", "message": "No session to discard"})
+        discard_session(current_session)
+        print(f"INFO: discarded session {current_session}")
+        current_session = None
+    return jsonify({"status": "completed"})
 
 
-    print("Cartella pulita!")
-    
-    return jsonify({
-        'status': 'completed'
-    })
-
-
-@app.route('/api/move_all')
+@app.route("/api/move_all", methods=["POST"])
 def move_all():
-    """
-    Move all imgs on new folder ~/Documents/CVLab_live_imgs
-    """
-
-    cartella_origine = "./live_imgs"
-    cartella_destinazione = "../CVLab_live_imgs"
-
-    # Creo la cartella di destinazione se non esiste
-    os.makedirs(cartella_destinazione, exist_ok=True)
-
-    now = datetime.now()
-    time_folder_name = now.strftime("%Y_%m_%d__%H_%M_%S")
-
-    destination = os.path.join(cartella_destinazione, time_folder_name)
-
-    shutil.copytree(cartella_origine, destination)
-    clear_all()
-
-    print("Immagini spostate con successo!")
-    
-    return jsonify({
-        'status': 'completed'
-    })
+    """Save the current session to CVLab_live_imgs/."""
+    global current_session
+    with session_lock:
+        if any_running():
+            return busy_response("save")
+        if current_session is None:
+            return jsonify({"status": "completed", "message": "No session to save"})
+        destination = save_session(current_session)
+        print(f"INFO: session saved to {destination}")
+        current_session = None
+    return jsonify({"status": "completed", "destination": str(destination)})
 
 
 # ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("=" * 60)
     print("CAMERA MONITORING SERVER")
     print("=" * 60)
-    print("\nAvailable sensors:")
-    print("  - RGB Stereo (Left + Right) - Basler")
-    print("  - Event Stereo (Left + Right)")
-    print("  - LiDAR Livox")
-    print("  - LiDAR Hesai")
-    
-    # Check for Event camera script
-    event_script_found = any(os.path.exists(p) for p in [
-        "./save_images_no_sign_distintion.py",
-        "../EventCamera/save_images_no_sign_distintion.py",
-        "/home/ubm/CVLab_Sensors/EventCamera/save_images_no_sign_distintion.py"
-    ])
-    
-    if event_script_found:
-        print("INFO: Event camera script found")
-    else:
-        print("WARNING: Event camera script not found - dummy mode")
-    
-    # Check for LiDAR programs
-    livox_found = any(os.path.exists(p) for p in [
-        "./save_intensity",
-        "../RGB_Livox_Calibration/save_intensity",
-        "/home/ubm/CVLab_Sensors/RGB_Livox_Calibration/save_intensity"
-    ])
-    
-    if livox_found:
-        print("INFO: Livox program found")
-    else:
-        print("WARNING: Livox program not found - dummy mode")
-    
+
+    missing = check_recorders_exist()
+    if missing:
+        sys.exit("ERROR: missing recorders:\n  " + "\n  ".join(missing))
+
     print("\nServer starting on http://0.0.0.0:5000")
     print("Connect from mobile: http://<COMPUTER_IP>:5000")
-    print("Connect from local: http://localhost:5000")
-    print(f"\nFrames saved to: {LIVE_IMGS_PATH}/<sensor_name>/")
     print("Press Ctrl+C to stop")
     print("=" * 60 + "\n")
-    
-    # Start Flask server
-    # host='0.0.0.0' allows connections from any IP (required for hotspot)
-    # use_reloader=False prevents double thread spawning in debug mode
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True, use_reloader=False)
+
+    threading.Thread(target=disk_guard, daemon=True).start()
+    try:
+        # use_reloader=False prevents double recorder spawning in debug mode
+        app.run(host="0.0.0.0", port=5000, debug=True, threaded=True, use_reloader=False)
+    finally:
+        print("Stopping all recorders...")
+        stop_all()

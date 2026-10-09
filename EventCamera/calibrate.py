@@ -11,6 +11,7 @@ import time
 
 
 PATTERN_SIZE = (9, 6)
+SQUARE_SIZE_MM = 29.0  # same as cvlab.config.SQUARE_SIZE_MM
 
 def read_calibration_data(delete_calibration_couples=True) -> Tuple[Dict[str,str], Dict[str,str]]:
     calibration_data_folder_path = "./calibration_data"
@@ -119,6 +120,7 @@ if __name__ == "__main__":
 
     pattern_points = np.zeros((np.prod(PATTERN_SIZE), 3), np.float32)
     pattern_points[:, :2] = np.indices(PATTERN_SIZE).T.reshape(-1, 2)
+    pattern_points *= SQUARE_SIZE_MM
     pattern_points = [pattern_points] * len(all_corners_left)
 
     err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(

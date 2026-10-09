@@ -8,11 +8,14 @@ from functools import partial
 import numpy as np
 from typing import List, Tuple
 
-from scipy.spatial.transform import Rotation
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cvlab import config
+from cvlab.calibration import pattern_points as make_pattern_points
 
 
-PATTERN_SIZE = (9, 6)
-SIDE_SIZE_CM = 2.9
+PATTERN_SIZE = config.PATTERN_SIZE
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
@@ -96,11 +99,11 @@ def main():
     chessboards_calib_results = os.path.join(current_folder_calib_results, "chessboards")
     os.mkdir(chessboards_calib_results)
 
-    cs = CornerSelector(px_threshold=0)
+    cs = CornerSelector(px_threshold=5)
 
     for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
-        if index_folder == "discarded":
-            continue
+        if not os.path.exists(os.path.join(data_folder, index_folder, "lidar_corners.npy")):
+            continue  # "discarded" and anything else that is not a sample
         lidar_corners_path   = os.path.join(data_folder, index_folder, "lidar_corners.npy")
         rgb_corners_path   = os.path.join(data_folder, index_folder, "rgb_corners.npy")
 
@@ -118,7 +121,8 @@ def main():
     print(f"\t{len(cs.corners_rgb)} RGB")
     print(f"Let's Calibrate!")
 
-    index_folder = os.listdir(data_folder)[0]
+    index_folder = next(f for f in sorted(os.listdir(data_folder))
+                        if os.path.exists(os.path.join(data_folder, f, "lidar_corners.png")))
     lidar_path   = os.path.join(data_folder, index_folder, "lidar_corners.png")
     rgb_path   = os.path.join(data_folder, index_folder, "rgb_corners.png")
 
@@ -131,23 +135,13 @@ def main():
     rgb_image_size = (rgb.shape[1], rgb.shape[0])
     lidar_image_size = (lidar.shape[1], lidar.shape[0])
 
-    pattern_points = np.zeros((np.prod(PATTERN_SIZE), 3), np.float32)
-    pattern_points[:, :2] = np.indices(PATTERN_SIZE).T.reshape(-1, 2)
-    pattern_points *= SIDE_SIZE_CM
+    pattern_points = make_pattern_points()  # mm
     pattern_points_repeated = [pattern_points] * len(cs.corners_rgb)
 
     # RGB and Lidar Stereo Calibrate
 
-    calibration_flags = (
-        # cv2.CALIB_FIX_INTRINSIC  # If you have pre-calibrated intrinsics
-        # OR use these for better stability:
-        cv2.CALIB_RATIONAL_MODEL |
-        cv2.CALIB_THIN_PRISM_MODEL
-    )
-
     err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
         pattern_points_repeated, cs.corners_rgb, cs.corners_lidar, None, None, None, None, rgb_image_size, 
-        criteria=None,
         flags=0
     )
 
@@ -159,7 +153,7 @@ def main():
     lidar_D = Dr
 
     print(f"RGB Lidar Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
-    print(f"RGB-Lidar T = {T.flatten()}")
+    print(f"RGB-Lidar T = {T.flatten()} mm")
 
     # Let's Rectify RGB
     R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
@@ -174,6 +168,14 @@ def main():
 
     rgb_rect, lidar_rect, comparison = test_rectification(rgb, lidar, rgb_map1, rgb_map2, lidar_map1, lidar_map2)
     cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_lidar_rectification_test.png"), comparison)
+
+    np.savez(
+        os.path.join(current_folder_calib_results, "rgb_lidar_calibration.npz"),
+        rgb_K=rgb_K, rgb_D=rgb_D, lidar_K=lidar_K, lidar_D=lidar_D,
+        R=R, T=T, rms=err, image_size=np.array(rgb_image_size),
+        square_size_mm=config.SQUARE_SIZE_MM, n_boards=len(cs.corners_rgb),
+    )
+    print(f"Saved to {current_folder_calib_results}")
 
 
 if __name__ == "__main__":

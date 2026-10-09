@@ -1,138 +1,214 @@
-from metavision_core.event_io import EventsIterator, LiveReplayEventsIterator, is_live_camera
-from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
-from metavision_sdk_ui import EventLoop, BaseWindow, MTWindow, UIAction, UIKeyEvent
-from metavision_core.event_io.raw_reader import initiate_device
-from metavision_sdk_stream import Camera, CameraStreamSlicer
+"""Event camera recorder (Prophesee EVK4).
+
+Usage: event.py <session_folder> [--right-camera]
+
+Writes one RAW file per recording into <session>/event_{left,right}/:
+  <host_start_us>.raw            events (+ external triggers if EVENT_TRIGGER_IN)
+  <host_start_us>.sync.csv       [camera_t_us, host_ns] pairs, ~10 per second
+  <host_start_us>.json           metadata
+cvlab.events.EventRecording maps the camera clock to the host clock from the sync
+pairs (cvlab.timesync: lower envelope fit, clock drift included).
+Also writes <session>/status/event_*.json and <session>/previews/event_*.jpg.
+Stop with SIGINT/SIGTERM.
+"""
+
 import argparse
+import glob
+import json
 import os
-import cv2
+import signal
 import sys
-import argparse
-
+import threading
 import time
-from datetime import datetime
 import traceback
+from datetime import datetime
 
-FPS = 20.
-ACCUMULATION_MS = 10
+from metavision_core.event_io import EventsIterator
+from metavision_core.event_io.raw_reader import initiate_device
+import metavision_hal
 
-class SaveEventImages:
-    start_time_us: int
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cvlab import config
+from cvlab.events import colored_frame
+from cvlab.status import Throttle, write_json_atomic, write_preview_atomic
 
-    def __init__(self, start_time_us, save_path):
-        self.start_time_us = start_time_us
-        self.save_path = save_path
+SYNC_PERIOD_S = 0.1
+DELTA_T_US = 10_000
+RETRY_DELAY_S = 2.0
 
-    def save(self, ts, img):
-        cv2.imwrite(os.path.join(self.save_path, f"{int(self.start_time_us+ts)}.png"), img)
-        # print(f"Delay s: {time.time() - (self.start_time_us+ts) * 10**-6:.4f} s")
-
-def get_data_from_camera(left_camera: bool, path: str):
-    while True:
-
-        if left_camera:
-            serial = "00051962"
-        else:
-            serial = "00051961"
-        print(f"Event Camera initialization {serial}")
-
-        while True:
-            try:
-                # camera = Camera.from_serial(serial)
-                device = initiate_device(path=serial, do_time_shifting=False)
-                """if left_camera:
-                    print(f"DONE LEFT!")
-                else:
-                    print(f"DONE RIGHT!")"""
-                break
-            except Exception as e:
-                print(f"Error initiating Event device {serial}: {e}. Retrying...")
-                pass
+stop_requested = threading.Event()
 
 
-        counter = 0
-        start_wall_time_us = int(time.time() * 1_000_000)
-
-        if device.get_i_events_stream():
-            starting_timestamp_us = int(datetime.now().timestamp() * 1_000_000)
-            mv_iterator = EventsIterator.from_device(device=device)
-            device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
-
-            for evs in mv_iterator:
-                try:
-                    if len(evs) > 0:
-                        if counter == 0:
-                            device.get_i_events_stream().stop_log_raw_data()
-                            starting_timestamp_us = int(start_wall_time_us + evs[0]['t'])
-                            device.get_i_events_stream().log_raw_data(os.path.join(path, f"{starting_timestamp_us}.raw"))
-                        counter += 1
-                        if counter > 20:
-                            counter = 0
-                except Exception as e:
-                    traceback.print_exc()
-                    break
+def request_stop(signum, frame):
+    stop_requested.set()
 
 
+def evk4_usb_speeds_mbps():
+    """USB link speed of every connected EVK4 (they expose no serial in sysfs)."""
+    speeds = []
+    for dev in glob.glob("/sys/bus/usb/devices/*"):
+        try:
+            with open(os.path.join(dev, "idVendor")) as f:
+                vendor = f.read().strip()
+            with open(os.path.join(dev, "idProduct")) as f:
+                product = f.read().strip()
+            if (vendor, product) == ("04b4", "00f5"):
+                with open(os.path.join(dev, "speed")) as f:
+                    speeds.append(int(f.read().strip()))
+        except (OSError, ValueError):
+            pass
+    return speeds
 
-    """
-    if device.get_i_events_stream():
-        device.get_i_events_stream().log_raw_data(os.path.join(path, time_folder_name))
-    mv_iterator = EventsIterator.from_device(device=device)
-    print(f"Starting taking events! {path}")
-    counter = 0
+
+class Status:
+    def __init__(self, session, name):
+        self.path = os.path.join(session, "status", f"{name}.json")
+        self.events = 0
+        self._last_events = 0
+        self._last_time = time.monotonic()
+        self.last_update = None
+        self.error = None
+        self.warning = None
+
+    def write(self):
+        try:
+            self._write()
+        except OSError as e:
+            print(f"WARNING: status not written: {e}")
+
+    def _write(self):
+        now = time.monotonic()
+        rate = (self.events - self._last_events) / max(now - self._last_time, 1e-6)
+        self._last_events, self._last_time = self.events, now
+        write_json_atomic(self.path, {
+            "written_at": time.time(),
+            "fps": rate / 1e6,
+            "unit": "Mev/s",
+            "events": self.events,
+            "last_update": self.last_update,
+            "error": self.error,
+            "warning": self.warning,
+        })
+
+
+def open_device(serial, status):
+    while not stop_requested.is_set():
+        try:
+            return initiate_device(path=serial, do_time_shifting=False)
+        except Exception as e:
+            status.error = f"cannot open event camera {serial}: {e}"
+            status.write()
+            print(f"{status.error}. Retrying in {RETRY_DELAY_S}s...")
+            stop_requested.wait(RETRY_DELAY_S)
+    return None
+
+
+def record(serial, name, session, status):
+    device = open_device(serial, status)
+    if device is None:
+        return
+
+    events_stream = device.get_i_events_stream()
     try:
-        for evs in mv_iterator:
-            counter += 1
-            if counter > 20:
-                device.get_i_events_stream().stop_log_raw_data()
-                now = datetime.now()
-                microseconds_from_epoch = int(now.timestamp() * 1_000_000)
-                time_folder_name = f"{microseconds_from_epoch}.h5"
-                device.get_i_events_stream().log_raw_data(os.path.join(path, time_folder_name))
-                counter = 0
+        hot_pixels = config.EVENT_HOT_PIXELS.get(serial, [])
+        if hot_pixels:
+            masks = device.get_i_digital_event_mask().get_pixel_masks()
+            if len(hot_pixels) > len(masks):
+                print(f"WARNING: {len(hot_pixels)} hot pixels but only {len(masks)} hardware masks")
+            for mask, (x, y) in zip(masks, hot_pixels):
+                mask.set_mask(x, y, True)
+            print(f"Masked hot pixels: {hot_pixels[:len(masks)]}")
 
-    except KeyboardInterrupt:
-        pass"""
-    
+        if config.EVENT_TRIGGER_IN:
+            trigger_in = device.get_i_trigger_in()
+            trigger_in.enable(metavision_hal.I_TriggerIn.Channel.MAIN)
+            print("Trigger input MAIN enabled")
 
-def argparser():
-    parser = argparse.ArgumentParser(description='Camera control application')
-    
-    # Add path argument with existence and directory validation
-    parser.add_argument(
-        'path',
-        type=str,
-        help='Where to save images from events. It must be an existing folder!'
-    )
-    
-    # Add boolean camera selection argument
-    parser.add_argument(
-        '--right-camera',
-        action='store_true',
-        dest='use_right_camera',
-        help='Use right camera (default: use left camera)'
-    )
-    
+        out_dir = os.path.join(session, name)
+        start_us = time.time_ns() // 1000
+        base = os.path.join(out_dir, str(start_us))
+        mv_iterator = EventsIterator.from_device(device=device, delta_t=DELTA_T_US)
+        height, width = mv_iterator.get_size()
+        events_stream.log_raw_data(base + ".raw")
+
+        metadata = {
+            "serial": serial,
+            "host_start_us": start_us,
+            "width": width,
+            "height": height,
+            "trigger_in": config.EVENT_TRIGGER_IN,
+            "masked_pixels": hot_pixels,
+            "usb_speeds_mbps": evk4_usb_speeds_mbps(),
+        }
+        with open(base + ".json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        sync_throttle = Throttle(SYNC_PERIOD_S)
+        preview_throttle = Throttle(config.PREVIEW_PERIOD_S)
+        status_throttle = Throttle(config.STATUS_PERIOD_S)
+        status.error = None
+        print(f"Recording {name} ({serial}) to {base}.raw")
+
+        with open(base + ".sync.csv", "w") as sync_log:
+            sync_log.write("camera_t_us,host_ns\n")
+            for evs in mv_iterator:
+                host_ns = time.time_ns()
+                if stop_requested.is_set():
+                    break
+                if len(evs) > 0:
+                    status.events += len(evs)
+                    status.last_update = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    if sync_throttle.ready():
+                        sync_log.write(f"{int(evs['t'][-1])},{host_ns}\n")
+                    if preview_throttle.ready():
+                        try:
+                            write_preview_atomic(os.path.join(session, "previews", f"{name}.jpg"),
+                                                 colored_frame(evs, width, height))
+                        except Exception as e:
+                            print(f"WARNING: preview not written: {e}")
+                if status_throttle.ready():
+                    status.write()
+                    sync_log.flush()
+    finally:
+        events_stream.stop_log_raw_data()
+        events_stream.stop()
+        del device
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Event camera recorder")
+    parser.add_argument("session", help="Session folder (must contain event_left/ and event_right/)")
+    parser.add_argument("--right-camera", action="store_true", dest="use_right_camera",
+                        help="Use right camera (default: left camera)")
     args = parser.parse_args()
-    
-    # Validate that the path exists and is a directory
-    if not os.path.exists(args.path):
-        print(f"Error: Path '{args.path}' does not exist", file=sys.stderr)
-        sys.exit(1)
-    
-    if not os.path.isdir(args.path):
-        print(f"Error: '{args.path}' is not a directory", file=sys.stderr)
-        sys.exit(1)
-    
-    # Use the arguments
-    # print(f"Directory path: {args.path}")
-    
-    if args.use_right_camera:
-        # print("Starting RIGHT camera")
-        get_data_from_camera(left_camera=False, path=args.path)
-    else:
-        # print("Starting LEFT camera")
-        get_data_from_camera(left_camera=True, path=args.path)
+
+    name = "event_right" if args.use_right_camera else "event_left"
+    serial = config.EVENT_RIGHT_SERIAL if args.use_right_camera else config.EVENT_LEFT_SERIAL
+    for sub in [name, "status", "previews"]:
+        os.makedirs(os.path.join(args.session, sub), exist_ok=True)
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+
+    status = Status(args.session, name)
+    slow_links = [s for s in evk4_usb_speeds_mbps() if s < 5000]
+    if slow_links:
+        status.warning = f"EVK4 connected at {slow_links} Mbps (USB2): events may be dropped, use a USB3 port"
+        print(f"WARNING: {status.warning}")
+
+    # Never fall back to fake frames: on failure report the error and reconnect.
+    while not stop_requested.is_set():
+        try:
+            record(serial, name, args.session, status)
+        except Exception as e:
+            traceback.print_exc()
+            status.error = str(e)
+            status.write()
+            stop_requested.wait(RETRY_DELAY_S)
+
+    status.write()
+    print("Done.")
+
 
 if __name__ == "__main__":
-    argparser()
+    main()

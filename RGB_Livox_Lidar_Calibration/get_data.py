@@ -1,11 +1,13 @@
 import subprocess
+import time
 from rgb import RGBSaveImages
 import os
 
 from datetime import datetime
 
 def start_getting_lidar_data(path):
-    process = subprocess.Popen(["sh", "save_intensity.sh", path])
+    # Run the binary directly: terminating an "sh" wrapper would leave it running
+    process = subprocess.Popen(["./save_intensity", path])
     return process
 
 def start_getting_rgb_data(path):
@@ -43,7 +45,7 @@ def main():
 
     try:
         while True:
-            pass
+            time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:

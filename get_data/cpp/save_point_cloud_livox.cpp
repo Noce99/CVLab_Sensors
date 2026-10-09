@@ -21,262 +21,127 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
+// Usage: save_point_cloud_livox <output_folder> [livox_config.json]
+//
+// Records the Livox point cloud into H5 files (see h5_point_writer.hpp).
+// Stop with SIGINT/SIGTERM: the last partial chunk is flushed before exiting.
 
 #include "livox_lidar_def.h"
 #include "livox_lidar_api.h"
 
-#ifdef _WIN32
-#include <winsock2.h>
-#else
 #include <unistd.h>
-#include <arpa/inet.h>
-#endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <thread>
+#include <atomic>
 #include <chrono>
-#include <iostream>
-#include <format>
-#include <opencv2/opencv.hpp>
-#include <iostream>
-#include <filesystem>
-#include <H5Cpp.h>
+#include <csignal>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <thread>
 
-#include <boost/interprocess/managed_shared_memory.hpp>
-#include <boost/interprocess/sync/scoped_lock.hpp>
+#include "h5_point_writer.hpp"
 
-uint64_t points = 0;
-uint64_t first_timestamp = 0;
+static const size_t MAX_POINTS_PER_FILE = 100000;
+static const char *DEFAULT_CONFIG = "/home/ubm/CVLab_Sensors/get_data/config/livox_hap.json";
 
-int width = 800;
-int height = 200;
-int focal_x = 400;
-int focal_y = 400;
-cv::Mat depth_image(height, width, CV_64F);
-std::vector<std::vector<double>> reflection_map(width, std::vector<double>(height, 0.0));
+static std::unique_ptr<H5PointWriter> writer;
 
-int fps = 1;
-long int dt_microseconds = 10000000; // 1000 / fps;
-long int last_start_microseconds = 0;
+static std::atomic<uint64_t> points_received{0};
+static std::atomic<int> last_time_type{-1};
+static std::atomic<bool> warned_unsupported{false};
 
-std::string FOLDER_TO_SAVE;
-
-int MAX_POINTS = 100000;
-int h5_file_index = 0;
-int buffer_index = 0;
-std::shared_ptr<H5::H5File> h5file = nullptr;
-std::shared_ptr<H5::DataSet> dataset = nullptr;
-std::vector<int16_t> points_buffer(MAX_POINTS * 4); // x, y, z, timestamp
-long int file_timestamp = 0;
-long int relative_time_ns = 0;
-
-using namespace boost::interprocess;
-
-void initialize_h5_file(const std::string &file_path)
+// Livox time_type: 0 = no sync (time since power on), 1 = PTP/gPTP, 2 = GPS
+static const char *time_type_name(int time_type)
 {
-  long int timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-  
-  std::string complete_file_path = file_path + "/" + std::to_string(timestamp) + ".h5";
-  h5file = std::make_shared<H5::H5File>(complete_file_path, H5F_ACC_TRUNC);
-
-  hsize_t dims[2] = {
-      static_cast<hsize_t>(MAX_POINTS),
-      static_cast<hsize_t>(4) // 4 attributes: x, y, z, timestamp
-  };
-  H5::DataSpace dataspace(2, dims);
-
-  // H5::DSetCreatPropList prop;
-  // hsize_t chunk_dims[2] = {1024, 4}; // Chunk size
-  // prop.setChunk(2, chunk_dims);
-
-  dataset = std::make_shared<H5::DataSet>(h5file->createDataSet("point_cloud", H5::PredType::NATIVE_INT16, dataspace)); // , prop));
-  file_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-  H5::Attribute timestamp_attr = dataset->createAttribute("file_creation_timestamp", H5::PredType::NATIVE_LONG, H5::DataSpace());
-  timestamp_attr.write(H5::PredType::NATIVE_LONG, &file_timestamp);
-  h5_file_index += 1;
-  relative_time_ns = 0;
-}
-
-std::string millisecondsToDate(uint64_t ms)
-{
-  using namespace std::chrono;
-
-  // Split into seconds and remaining milliseconds
-  std::time_t seconds = static_cast<std::time_t>(ms / 1000);
-  int millis = static_cast<int>(ms % 1000);
-
-  // Format the date/time (C++20)
-  std::string date_str = std::format("{:%Y-%m-%d_%H:%M:%S}", system_clock::from_time_t(seconds));
-
-  // Append milliseconds
-  date_str += std::format(".{:03d}", millis);
-
-  return date_str;
-}
-
-cv::Mat image_from_reflection_map()
-{
-  double min_val = reflection_map[0][0];
-  double max_val = reflection_map[0][0];
-
-  max_val = 5.0; // Cap the max value for better visualization
-
-  // Create OpenCV Mat for RGB image
-  cv::Mat image(height, width, CV_8UC1, cv::Scalar(0));
-
-  for (int x = 0; x < width; ++x)
+  switch (time_type)
   {
-    for (int y = 0; y < height; ++y)
-    {
-      // Normalize to [0, 1]
-      double normalized = (reflection_map[x][y] - min_val) / (max_val - min_val) * 255.0;
-
-      // Apply inferno colormap
-      // cv::Vec3b color = inferno_colormap(normalized);
-
-      // Set pixel color (note: OpenCV uses BGR format)
-      // clamp and cast to unsigned 8-bit value for CV_8UC1 image
-      if (std::isnan(normalized) || std::isinf(normalized))
-        normalized = 0.0;
-      if (normalized < 0.0)
-        normalized = 0.0;
-      if (normalized > 255.0)
-        normalized = 255.0;
-      image.at<uchar>(y, x) = static_cast<uchar>(std::lround(normalized));
-    }
+  case 0:
+    return "livox_unsynced";
+  case 1:
+    return "livox_ptp";
+  case 2:
+    return "livox_gps";
+  default:
+    return "livox_unknown";
   }
-
-  return image;
 }
 
 void PointCloudCallback(uint32_t handle, const uint8_t dev_type, LivoxLidarEthernetPacket *data, void *client_data)
 {
   if (data == nullptr)
-  {
     return;
-  }
 
-  points++;
+  const int64_t host_ns = host_now_ns();
 
-  uint64_t timestamp = 0;
+  uint64_t packet_ts = 0;
   for (int i = 0; i < 8; i++)
+    packet_ts |= static_cast<uint64_t>(data->timestamp[i]) << (8 * i);
+  const int64_t first_point_ns = static_cast<int64_t>(packet_ts);
+
+  if (data->time_type != last_time_type)
   {
-    timestamp |= static_cast<uint64_t>(data->timestamp[i]) << (8 * i);
+    last_time_type = data->time_type;
+    writer->set_time_source(time_type_name(data->time_type));
+    std::printf("Livox time source: %s\n", time_type_name(data->time_type));
+    std::fflush(stdout);
   }
+  writer->add_sync(first_point_ns, host_ns);
 
-  // uint64_t time_interval = 0;
-  // for(int i = 0; i < 2; i++) {
-  //     time_interval |= static_cast<uint64_t>(data->time_interval[i]) << (2 * i);
-  // }
-
-  int time_step = static_cast<int>(static_cast<double>(data->time_interval) / static_cast<double>(data->dot_num) * 0.1 * 1e3); // in microseconds
+  // time_interval: whole packet duration, unit 0.1 us
+  const int64_t packet_duration_ns = static_cast<int64_t>(data->time_interval) * 100;
+  const uint32_t dot_num = data->dot_num;
 
   if (data->data_type == kLivoxLidarCartesianCoordinateHighData)
   {
-    LivoxLidarCartesianHighRawPoint *p_point_data = (LivoxLidarCartesianHighRawPoint *)data->data;
-    for (uint32_t i = 0; i < data->dot_num; i++)
+    auto *p = reinterpret_cast<LivoxLidarCartesianHighRawPoint *>(data->data);
+    for (uint32_t i = 0; i < dot_num; i++)
     {
-      int16_t x = p_point_data[i].z;
-      int16_t y = -p_point_data[i].y;
-      int16_t z = p_point_data[i].x;
-      if (x == 0 && y == 0 && z == 0)
-      {
+      if (p[i].x == 0 && p[i].y == 0 && p[i].z == 0)
         continue;
-      }
-      if (buffer_index >= MAX_POINTS * 4)
-      {
-        // Save current buffer to H5 file
-        dataset->write(points_buffer.data(), H5::PredType::NATIVE_INT16);
-        h5file->close();
-
-        // Initialize new H5 file
-        initialize_h5_file(FOLDER_TO_SAVE);
-
-        // Reset buffer index and add current point
-        buffer_index = 0;
-      }
-      points_buffer[buffer_index++] = x;
-      points_buffer[buffer_index++] = y;
-      points_buffer[buffer_index++] = z;
-      points_buffer[buffer_index++] = relative_time_ns;
-
-      relative_time_ns += time_step;
+      writer->add_point(static_cast<float>(p[i].x), static_cast<float>(p[i].y), static_cast<float>(p[i].z),
+                        first_point_ns + packet_duration_ns * i / dot_num, p[i].reflectivity);
     }
-
-    // long int current_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
-    //     std::chrono::system_clock::now().time_since_epoch()).count();
-
-    // if (last_start_microseconds == 0) {
-    //     last_start_microseconds = current_microseconds;
-    // }else if (current_microseconds - last_start_microseconds > dt_microseconds) {
-    //     std::string reflection_filename = std::to_string(current_microseconds) + ".png";
-    //     std::string path_to_save = FOLDER_TO_SAVE + "/lidar/" + reflection_filename;
-
-    //     std::cout << "Saving images... [" << millisecondsToDate(current_microseconds / 1000) << "]" << std::endl;
-    //     std::cout << "In " << path_to_save << std::endl;
-
-    //     // std::string depth_filename = "depth_map_" + std::to_string(current_milliseconds) + ".png";
-    //     // cv::imwrite(depth_filename, depth_image);
-    //     cv::imwrite(path_to_save, image_from_reflection_map());
-
-    //     last_start_microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
-    //     std::chrono::system_clock::now().time_since_epoch()).count();
-
-    //     depth_image.setTo(cv::Scalar(0));
-    //     for (auto& row : reflection_map) {
-    //       std::fill(row.begin(), row.end(), 0.0);
-    //     }
-    // }
   }
   else if (data->data_type == kLivoxLidarCartesianCoordinateLowData)
   {
-    LivoxLidarCartesianLowRawPoint *p_point_data = (LivoxLidarCartesianLowRawPoint *)data->data;
-    std::cout << "DUE" << std::endl;
+    auto *p = reinterpret_cast<LivoxLidarCartesianLowRawPoint *>(data->data);
+    for (uint32_t i = 0; i < dot_num; i++)
+    {
+      if (p[i].x == 0 && p[i].y == 0 && p[i].z == 0)
+        continue;
+      // Low resolution data is in cm
+      writer->add_point(p[i].x * 10.0f, p[i].y * 10.0f, p[i].z * 10.0f,
+                        first_point_ns + packet_duration_ns * i / dot_num, p[i].reflectivity);
+    }
   }
-  else if (data->data_type == kLivoxLidarSphericalCoordinateData)
+  else if (!warned_unsupported.exchange(true))
   {
-    LivoxLidarSpherPoint *p_point_data = (LivoxLidarSpherPoint *)data->data;
-    std::cout << "TRE" << std::endl;
+    std::fprintf(stderr, "WARNING: unsupported Livox data_type %u (set pcl_data_type 1 in the config)\n", data->data_type);
   }
+
+  points_received += dot_num;
 }
 
 void WorkModeCallback(livox_status status, uint32_t handle, LivoxLidarAsyncControlResponse *response, void *client_data)
 {
-  if (response == nullptr)
-  {
-    return;
-  }
-  // printf("WorkModeCallack, status:%u, handle:%u, ret_code:%u, error_key:%u",
-  //     status, handle, response->ret_code, response->error_key);
 }
+
 void QueryInternalInfoCallback(livox_status status, uint32_t handle,
                                LivoxLidarDiagInternalInfoResponse *response, void *client_data)
 {
   if (status != kLivoxLidarStatusSuccess)
   {
-    // printf("Query lidar internal info failed.\n");
     QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
     return;
   }
 
   if (response == nullptr)
-  {
     return;
-  }
 
   uint8_t host_point_ipaddr[4]{0};
   uint16_t host_point_port = 0;
   uint16_t lidar_point_port = 0;
-
-  uint8_t host_imu_ipaddr[4]{0};
-  uint16_t host_imu_data_port = 0;
-  uint16_t lidar_imu_data_port = 0;
 
   uint16_t off = 0;
   for (uint8_t i = 0; i < response->param_num; ++i)
@@ -288,31 +153,22 @@ void QueryInternalInfoCallback(livox_status status, uint32_t handle,
       memcpy(&(host_point_port), &(kv->value[4]), sizeof(uint16_t));
       memcpy(&(lidar_point_port), &(kv->value[6]), sizeof(uint16_t));
     }
-    else if (kv->key == kKeyLidarImuHostIpCfg)
-    {
-      memcpy(host_imu_ipaddr, &(kv->value[0]), sizeof(uint8_t) * 4);
-      memcpy(&(host_imu_data_port), &(kv->value[4]), sizeof(uint16_t));
-      memcpy(&(lidar_imu_data_port), &(kv->value[6]), sizeof(uint16_t));
-    }
     off += sizeof(uint16_t) * 2;
     off += kv->length;
   }
 
-  printf("Host point cloud ip addr:%u.%u.%u.%u, host point cloud port:%u, lidar point cloud port:%u.\n",
-         host_point_ipaddr[0], host_point_ipaddr[1], host_point_ipaddr[2], host_point_ipaddr[3], host_point_port, lidar_point_port);
-
-  printf("Host imu ip addr:%u.%u.%u.%u, host imu port:%u, lidar imu port:%u.\n",
-         host_imu_ipaddr[0], host_imu_ipaddr[1], host_imu_ipaddr[2], host_imu_ipaddr[3], host_imu_data_port, lidar_imu_data_port);
+  std::printf("Host point cloud ip addr:%u.%u.%u.%u, host point cloud port:%u, lidar point cloud port:%u.\n",
+              host_point_ipaddr[0], host_point_ipaddr[1], host_point_ipaddr[2], host_point_ipaddr[3], host_point_port, lidar_point_port);
+  std::fflush(stdout);
 }
 
 void LidarInfoChangeCallback(const uint32_t handle, const LivoxLidarInfo *info, void *client_data)
 {
   if (info == nullptr)
   {
-    printf("lidar info change callback failed, the info is nullptr.\n");
+    std::printf("lidar info change callback failed, the info is nullptr.\n");
     return;
   }
-  // printf("LidarInfoChangeCallback Lidar handle: %u SN: %s\n", handle, info->sn);
   // set the work mode to kLivoxLidarNormal, namely start the lidar
   SetLivoxLidarWorkMode(handle, kLivoxLidarNormal, WorkModeCallback, nullptr);
   QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
@@ -322,42 +178,53 @@ int main(int argc, const char *argv[])
 {
   if (argc < 2)
   {
+    std::fprintf(stderr, "Usage: %s <output_folder> [livox_config.json]\n", argv[0]);
     return 1;
   }
-  else
+  const std::string folder = argv[1];
+  const std::string config_path = argc > 2 ? argv[2] : DEFAULT_CONFIG;
+
+  if (!std::filesystem::is_directory(folder))
   {
-    FOLDER_TO_SAVE = argv[1];
+    std::fprintf(stderr, "Output folder does not exist: %s\n", folder.c_str());
+    return 1;
   }
 
-  // std::cout << "Saving data to folder: " << FOLDER_TO_SAVE << std::endl;
-  // if (!std::filesystem::exists(FOLDER_TO_SAVE)) {
-  //   std::filesystem::create_directories(FOLDER_TO_SAVE);
-  // }
-  // if (!std::filesystem::exists(FOLDER_TO_SAVE + "/lidar")) {
-  //   std::filesystem::create_directories(FOLDER_TO_SAVE + "/lidar");
-  // }
+  std::signal(SIGINT, request_stop);
+  std::signal(SIGTERM, request_stop);
 
-  std::string json_setup_path = "/home/ubm/SDKs/Livox-SDK2/samples/livox_lidar_quick_start/hap_noce.json";
+  writer = std::make_unique<H5PointWriter>(folder, "livox", MAX_POINTS_PER_FILE);
 
-  // Initalize H5 File
-  initialize_h5_file(FOLDER_TO_SAVE);
-
-  // REQUIRED, to init Livox SDK2
-  if (!LivoxLidarSdkInit(json_setup_path.c_str()))
+  if (!LivoxLidarSdkInit(config_path.c_str()))
   {
-    printf("Livox Init Failed\n");
+    std::fprintf(stderr, "Livox Init Failed (config %s)\n", config_path.c_str());
     LivoxLidarSdkUninit();
     return -1;
   }
 
-  // REQUIRED, to get point cloud data via 'PointCloudCallback'
   SetLivoxLidarPointCloudCallBack(PointCloudCallback, nullptr);
-
-  // REQUIRED, to get a handle to targeted lidar and set its work mode to NORMAL
   SetLivoxLidarInfoChangeCallback(LidarInfoChangeCallback, nullptr);
 
-  while (true)
+  // One status line per second instead of per packet.
+  auto last_report = std::chrono::steady_clock::now();
+  uint64_t last_points = 0;
+  while (!g_stop_requested)
   {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_report >= std::chrono::seconds(1))
+    {
+      uint64_t total = points_received;
+      std::printf("points/s: %llu\n", static_cast<unsigned long long>(total - last_points));
+      std::fflush(stdout);
+      last_points = total;
+      last_report = now;
+    }
   }
+
+  std::printf("Stopping, flushing last chunk...\n");
+  LivoxLidarSdkUninit();
+  writer->close();
+  std::printf("Done.\n");
   return 0;
 }

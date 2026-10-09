@@ -1,7 +1,9 @@
 
 from pypylon import pylon
 import socket
-from setup_stereo_cameras import setup_stereo_cameras
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from RGBCamera.setup_stereo_cameras import setup_stereo_cameras
 
 # 192.168.1.70 -> 192.168.1.52
 # 192.168.1.71 -> 192.168.1.53

@@ -6,9 +6,14 @@ import cv2
 import concurrent.futures
 from functools import partial
 import numpy as np
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cvlab import config
+from cvlab.calibration import canonical_corners, to_calibration_size
 
 
-PATTERN_SIZE = (9, 6)
+PATTERN_SIZE = config.PATTERN_SIZE
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
@@ -56,14 +61,8 @@ def process_event_image(image):
     return image_mono
 
 def set_new_size(width, height, img):
-    aspect_ration = width / height
-    new_img_height = img.shape[1] / aspect_ration
-    height_diff = abs(img.shape[0] - new_img_height)
-    if height_diff != 0:
-        img = img[int(height_diff/2):int(-height_diff/2), :]
-
-    img = cv2.resize(img, (width, height))
-    return img
+    """Center-crop to the target aspect ratio, then resize."""
+    return to_calibration_size(img, (width, height))
 
 def main():
     calibration_data_path = "./calibration_data"
@@ -160,8 +159,9 @@ def main():
             corners_lidar_fine = corner_lidar# cv2.cornerSubPix(lidar, corner_lidar, (11,11), (-1,-1), criteria)
             corner_rgb_fine    = corner_rgb# cv2.cornerSubPix(rgb, corner_rgb, (11,11), (-1,-1), criteria)
 
-            corners_lidar_fine   = corners_lidar_fine.reshape(-1, 2)
-            corner_rgb_fine      = corner_rgb_fine.reshape(-1, 2)
+            # Same physical corner first in both images (180 degree ambiguity)
+            corners_lidar_fine   = canonical_corners(corners_lidar_fine)
+            corner_rgb_fine      = canonical_corners(corner_rgb_fine)
 
             # Save chessboard images with drawn corners
             lidar_3_channels = cv2.cvtColor(lidar, cv2.COLOR_GRAY2BGR)

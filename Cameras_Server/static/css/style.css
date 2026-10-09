@@ -249,3 +249,11 @@ footer {
         flex-direction: column;
     }
 }
+
+.error-msg {
+    color: #ef4444;
+    font-size: 0.85em;
+    min-height: 1.2em;
+    margin: 4px 0;
+    word-break: break-word;
+}

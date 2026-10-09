@@ -19,14 +19,62 @@
 ![RGBs](assets/rgbs.png)
 ![Events](assets/events.png)
 
-## Starting PTP Server on NUC
+## Time synchronization (PTP)
+Every Ethernet sensor sits on its own USB network adapter (r8152), which has no
+hardware timestamping. A single `ptp4l` with software timestamping serves the
+NUC system clock to the Basler cameras and the Livox (accuracy: tens of microseconds):
 ```
-sudo ptp4l -i enp2s0 -m --step_threshold=1
+sudo ptp4l -f get_data/config/ptp4l.conf -m
 ```
-If needed you can set the time with a 2-hour (7200 seconds) delay because of the Italian timezone:
+or install it as a service (starts at boot):
 ```
-sudo phc2sys -s CLOCK_REALTIME -c enp2s0 -m -O 0
+sudo cp get_data/config/ptp4l-cvlab.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now ptp4l-cvlab
+journalctl -u ptp4l-cvlab -f
 ```
+- **Basler**: the RGB recorder refuses to record until both cameras are PTP `Slave` + `Locked`
+  (use `--allow-unsynced` to record anyway).
+- **Livox HAP**: needs PTP over L2 (set in `ptp4l.conf`); each H5 file stores `time_source` (`livox_ptp` when synced).
+- Check everything with `get_data/check_ptp.py`.
+- **Hesai XT32**: keep its clock source on GPS (free running). It cannot follow a two-step PTP
+  master (software timestamping is always two-step): its clock jumps by seconds. Its H5 files
+  store `sync` pairs, and `cvlab.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
+- **Event cameras** (USB) are not on PTP: their clock is mapped to the host clock through the
+  `*.sync.csv` file written next to each recording. For exact RGB-event sync, wire a Basler output
+  line (LineSource = ExposureActive) into the EVK4 trigger input and set `EVENT_TRIGGER_IN = True`
+  in `cvlab/config.py`.
+
+## Recording
+All settings (IPs, serials, exposure, paths, ...) are in `cvlab/config.py`.
+- Terminal: `venv_3_12/bin/python get_data/get_data.py` (Ctrl+C to stop; `--only rgb event` to record a subset)
+- Web dashboard: `Cameras_Server/start_server.sh`, then http://<NUC_IP>:5000
+
+Sessions are recorded in `get_data/data/<date>/` and moved to `CVLab_live_imgs/<date>/` when saved.
+Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
+```
+<session>/
+├── rgb_left/, rgb_right/        <host_time_us>.png
+├── event_left/, event_right/    <start_us>.raw (+ .sync.csv clock mapping, .json metadata)
+├── lidar_livox/, lidar_hesai/   <host_time_us>.h5: xyz (mm, float32, native sensor frame),
+│                                timestamp_ns (lidar clock), intensity, sync [lidar_ns, host_ns]
+├── rgb_clock_sync.csv           Basler clock <-> host clock
+├── logs/, status/, previews/
+```
+Readers for all of these are in `cvlab/` (`lidar.py`, `events.py`).
+
+**Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
+camera can produce more than USB2 can carry. Hot pixels are masked in hardware
+(`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `get_data/find_hot_pixels.py`).
+
+## RGB-Event calibration
+1. Record the chessboard (29 mm squares), moving it around: `get_data/get_data.py --only rgb event`
+2. `RGB_Event_Calibration/process_calibration_data.py [session]`
+3. `RGB_Event_Calibration/calibrate.py` (installs `CVLab_live_imgs/rgb_event_calibration.npz`)
+4. Check: `CVLab_live_imgs/rectification.py {rgb,event}`, `CVLab_live_imgs/all_images_rect.py`
+
+RGB images are center-cropped to 16:9 and resized to 1280x720 before calibration
+(`cvlab.calibration.to_calibration_size`): do the same before using the intrinsics.
+
 ## Hesai Lidars
 <a name="hesai_lidar"></a>
 ## Livox Lidars

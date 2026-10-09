@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from pypylon import genicam
 from pypylon import pylon
-from setup_stereo_cameras import setup_stereo_camera
+from setup_stereo_cameras import setup_stereo_cameras
 import time
 
 
@@ -78,7 +78,7 @@ def main():
 
         camera_serials[i] = camera.GetDeviceInfo().GetSerialNumber()
         
-        setup_stereo_camera(camera, left_camera[camera_serials[i]])
+        setup_stereo_cameras(camera)
 
     check_iterations = 0
     while True:

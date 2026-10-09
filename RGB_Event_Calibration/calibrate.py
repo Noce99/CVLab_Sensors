@@ -1,426 +1,167 @@
+"""Calibrate the RGB stereo pair, the event stereo pair and RGB-left <-> event-left.
+
+Usage: calibrate.py [processed_data/<session>]   (default: latest)
+
+1. Intrinsics of each camera on its own (calibrateCamera), dropping outlier boards.
+2. Every stereo pair with CALIB_FIX_INTRINSIC, so R/T are consistent with the saved K/D.
+3. Results in calibration_results/<time>/ and installed to config.RGB_EVENT_CALIBRATION_FILE.
+
+All images are in CALIBRATION_IMAGE_SIZE: RGB images must go through
+cvlab.calibration.to_calibration_size before using these intrinsics.
+Translations are in mm.
+"""
+
+import argparse
 import os
-from datetime import datetime
 import shutil
-from tqdm import tqdm
+import sys
+from datetime import datetime
+
 import cv2
-import concurrent.futures
-from functools import partial
 import numpy as np
-from typing import List, Tuple
 
-from scipy.spatial.transform import Rotation
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cvlab import config
+from cvlab.calibration import (pattern_points, rectification_check_image, rectify_pair,
+                               stereo_rectify_maps)
 
-from process_calibration_data import adjust_gamma
-from warp import undistort, compute_homography, warp_image
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROCESSED_DATA_PATH = os.path.join(HERE, "processed_data")
+RESULTS_PATH = os.path.join(HERE, "calibration_results")
+
+CAMERAS = ["rgb_left", "rgb_right", "event_left", "event_right"]
+PIPELINE_VERSION = 2
+DEDUP_PX = 20                 # boards closer than this (rgb_left corners) are duplicates
+MAX_VIEW_ERROR_FACTOR = 3.0   # drop boards with error > factor * median
 
 
-PATTERN_SIZE = (9, 6)
-SIDE_SIZE_CM = 2.1 # 3 schermo di Luca
-criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
+def load_samples(folder):
+    samples = []
+    for name in sorted(os.listdir(folder)):
+        sample = os.path.join(folder, name)
+        paths = {cam: os.path.join(sample, f"{cam}_corners.npy") for cam in CAMERAS}
+        if os.path.isdir(sample) and all(os.path.exists(p) for p in paths.values()):
+            samples.append({"name": name, **{cam: np.load(p).reshape(-1, 1, 2).astype(np.float32)
+                                             for cam, p in paths.items()}})
+    return samples
 
 
-def rectify_stereo_pair(left_img, right_img, left_map1, left_map2, right_map1, right_map2):
-    left_rectified = cv2.remap(left_img, left_map1, left_map2, cv2.INTER_LINEAR)
-    right_rectified = cv2.remap(right_img, right_map1, right_map2, cv2.INTER_LINEAR)
-    return left_rectified, right_rectified
+def deduplicate(samples):
+    """Drop boards almost identical to an already kept one (the board did not move)."""
+    kept, descriptors = [], []
+    for s in samples:
+        c = s["rgb_left"].reshape(-1, 2)
+        d = np.concatenate([c[0], c[-1]])
+        if not descriptors or min(np.max(np.abs(d - k)) for k in descriptors) > DEDUP_PX:
+            kept.append(s)
+            descriptors.append(d)
+    return kept
 
-def test_rectification(left_img, right_img, left_map1, left_map2, right_map1, right_map2):
 
-    # Rectify the images
-    left_rect, right_rect = rectify_stereo_pair(left_img, right_img, left_map1, left_map2, right_map1, right_map2)
-    
-    # Create a side-by-side visualization
-    vis = np.hstack((left_rect, right_rect))
-    
-    # Draw horizontal lines to verify rectification
-    h, w = left_rect.shape[:2]
-    for y in range(0, h, 50):
-        cv2.line(vis, (0, y), (w*2, y), (0, 255, 0), 1)
-    
-    return left_rect, right_rect, vis
+def view_errors(objp, corners, K, D, rvecs, tvecs):
+    errors = []
+    for c, r, t in zip(corners, rvecs, tvecs):
+        projected, _ = cv2.projectPoints(objp, r, t, K, D)
+        errors.append(np.sqrt(np.mean(np.sum((projected - c) ** 2, axis=2))))
+    return np.array(errors)
 
-class CornerSelector:
-    px_threshold : int
-    accepted_corners : int
-    corners_describers : List[np.ndarray]
-    corners_rgb_l : List[np.ndarray]
-    corners_rgb_r : List[np.ndarray]
-    corners_event_l : List[np.ndarray]
-    corners_event_r : List[np.ndarray]
 
-    def __init__(self, px_threshold=5):
-        self.px_threshold = px_threshold
-        self.accepted_corners = 0
-        self.corners_describers = []
-        self.corners_rgb_l   = []
-        self.corners_rgb_r   = []
-        self.corners_event_l = []
-        self.corners_event_r = []
+def calibrate_intrinsics(samples, objp, image_size):
+    """Per camera intrinsics; returns ({cam: (rms, K, D)}, samples without outliers)."""
+    for attempt in range(2):
+        results, bad = {}, set()
+        for cam in CAMERAS:
+            corners = [s[cam] for s in samples]
+            rms, K, D, rvecs, tvecs = cv2.calibrateCamera([objp] * len(corners), corners, image_size, None, None)
+            errors = view_errors(objp, corners, K, D, rvecs, tvecs)
+            results[cam] = (rms, K, D)
+            bad |= set(np.where(errors > MAX_VIEW_ERROR_FACTOR * np.median(errors))[0])
+            print(f"\t{cam:12s} RMS {rms:.3f} px  (median view error {np.median(errors):.3f}, max {errors.max():.3f})")
+        if not bad or attempt == 1:
+            return results, samples
+        print(f"Dropping {len(bad)} outlier boards and recalibrating")
+        samples = [s for i, s in enumerate(samples) if i not in bad]
+    return results, samples
 
-    def add_corners(self,
-        c_rgb_l: np.ndarray,
-        c_rgb_r: np.ndarray,
-        c_event_l: np.ndarray,
-        c_event_r: np.ndarray
-    ):
-        current_corner_describer = np.array([c_rgb_l[0, 0], c_rgb_l[0, 1], c_rgb_l[-1, 0], c_rgb_l[-1, 1]])
 
-        if self.accepted_corners == 0:
-            self.accepted_corners += 1
-            self.corners_describers.append(current_corner_describer)
-            self.corners_rgb_l.append(c_rgb_l)
-            self.corners_rgb_r.append(c_rgb_r)
-            self.corners_event_l.append(c_event_l)
-            self.corners_event_r.append(c_event_r)
-        else:
-            diffs = []
-            for cd in self.corners_describers:
-                diffs.append(np.max(np.abs(cd - current_corner_describer)))
-            min_diffs = min(diffs)
-            if min_diffs > self.px_threshold:
-                self.accepted_corners += 1
-                self.corners_describers.append(current_corner_describer)
-                self.corners_rgb_l.append(c_rgb_l)
-                self.corners_rgb_r.append(c_rgb_r)
-                self.corners_event_l.append(c_event_l)
-                self.corners_event_r.append(c_event_r)
-            # print(f"Min Diff = {min_diffs}  [{self.accepted_corners}]")
+def stereo(samples, objp, cam1, cam2, intrinsics, image_size):
+    _, K1, D1 = intrinsics[cam1]
+    _, K2, D2 = intrinsics[cam2]
+    rms, _, _, _, _, R, T, _, _ = cv2.stereoCalibrate(
+        [objp] * len(samples), [s[cam1] for s in samples], [s[cam2] for s in samples],
+        K1, D1, K2, D2, image_size, flags=cv2.CALIB_FIX_INTRINSIC)
+    angle = np.degrees(np.linalg.norm(cv2.Rodrigues(R)[0]))
+    print(f"\t{cam1} -> {cam2}: RMS {rms:.3f} px, T = {T.ravel().round(1)} mm "
+          f"(|T| = {np.linalg.norm(T):.1f} mm), rotation {angle:.2f} deg")
+    return rms, R, T
 
 
 def main():
-    processed_data_path = "./processed_data"
-    if not os.path.exists(processed_data_path):
-        raise Exception(f"Processed data folder not found at {processed_data_path}")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("folder", nargs="?", help="processed_data/<session> (default: latest)")
+    parser.add_argument("--no-install", action="store_true",
+                        help=f"Do not copy the result to {config.RGB_EVENT_CALIBRATION_FILE}")
+    args = parser.parse_args()
 
-    folders = os.listdir(processed_data_path)
-    folders.sort()
-    folder = folders[-1]
-    data_folder = os.path.join(processed_data_path, folder)
-    print(f"Processing folder {data_folder}")
+    folder = args.folder or os.path.join(PROCESSED_DATA_PATH, sorted(os.listdir(PROCESSED_DATA_PATH))[-1])
+    print(f"Processing folder {folder}")
 
+    samples = load_samples(folder)
+    print(f"{len(samples)} boards seen by all four cameras")
+    samples = deduplicate(samples)
+    print(f"{len(samples)} boards after removing duplicates")
+    if len(samples) < 10:
+        sys.exit("Not enough boards to calibrate (need at least 10): move the board around more")
 
-    calibration_results_path = "./calibration_results"
-    if not os.path.exists(calibration_results_path):
-        os.mkdir(calibration_results_path)
-    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    current_folder_calib_results = os.path.join("./calibration_results", current_time)
-    os.mkdir(current_folder_calib_results)
+    image_size = config.CALIBRATION_IMAGE_SIZE
+    objp = pattern_points()
 
-    chessboards_calib_results = os.path.join(current_folder_calib_results, "chessboards")
-    os.mkdir(chessboards_calib_results)
+    print("Intrinsics:")
+    intrinsics, samples = calibrate_intrinsics(samples, objp, image_size)
+    print(f"Using {len(samples)} boards")
 
-    cs = CornerSelector(px_threshold=20)
+    print("Extrinsics:")
+    rgb_rms, rgb_R, rgb_T = stereo(samples, objp, "rgb_left", "rgb_right", intrinsics, image_size)
+    event_rms, event_R, event_T = stereo(samples, objp, "event_left", "event_right", intrinsics, image_size)
+    rgb_event_rms, rgb_event_R, rgb_event_T = stereo(samples, objp, "rgb_left", "event_left", intrinsics, image_size)
 
-    for i, index_folder in tqdm(enumerate(os.listdir(data_folder)), total=len(os.listdir(data_folder))):
-        rgb_l_corners_path   = os.path.join(data_folder, index_folder, "left_rgb_corners.npy")
-        rgb_r_corners_path   = os.path.join(data_folder, index_folder, "right_rgb_corners.npy")
-        event_l_corners_path = os.path.join(data_folder, index_folder, "left_event_corners.npy")
-        event_r_corners_path = os.path.join(data_folder, index_folder, "right_event_corners.npy")
+    results = os.path.join(RESULTS_PATH, datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
+    os.makedirs(results)
 
-        corners_rgb_l_fine   = np.load(rgb_l_corners_path)
-        corners_rgb_r_fine   = np.load(rgb_r_corners_path)
-        corners_event_l_fine = np.load(event_l_corners_path)[::-1]
-        corners_event_r_fine = np.load(event_r_corners_path)[::-1]
+    # Visual checks on the first board
+    first = os.path.join(folder, samples[0]["name"])
+    img = {cam: cv2.imread(os.path.join(first, f"{cam}_corners.png")) for cam in CAMERAS}
+    for (cam1, cam2, R, T) in [("rgb_left", "rgb_right", rgb_R, rgb_T),
+                               ("event_left", "event_right", event_R, event_T),
+                               ("rgb_left", "event_left", rgb_event_R, rgb_event_T)]:
+        maps1, maps2, _ = stereo_rectify_maps(*intrinsics[cam1][1:], *intrinsics[cam2][1:], R, T, image_size)
+        rect1, rect2 = rectify_pair(img[cam1], img[cam2], maps1, maps2)
+        cv2.imwrite(os.path.join(results, f"rectification_{cam1}_{cam2}.png"),
+                    rectification_check_image(rect1, rect2))
+        if cam2 == "event_left":
+            cv2.imwrite(os.path.join(results, "rgb_event_overlay.png"), cv2.addWeighted(rect1, 0.5, rect2, 0.5, 0))
 
-        cs.add_corners(
-            corners_rgb_l_fine,
-            corners_rgb_r_fine,
-            corners_event_l_fine,
-            corners_event_r_fine,
-        )
-            
-
-    print(f"I have detected the following chessboards:")
-    print(f"\t{len(cs.corners_rgb_l)} Left RGB")
-    print(f"\t{len(cs.corners_rgb_r)} Right RGB")
-    print(f"\t{len(cs.corners_event_l)} Left Event")
-    print(f"\t{len(cs.corners_event_r)} Right Event")
-    print(f"Let's Calibrate!")
-
-    index_folder = os.listdir(data_folder)[0]
-    rgb_l_path   = os.path.join(data_folder, index_folder, "rgb_left_corners.png")
-    rgb_r_path   = os.path.join(data_folder, index_folder, "rgb_right_corners.png")
-    event_l_path = os.path.join(data_folder, index_folder, "event_left_corners.png")
-    event_r_path = os.path.join(data_folder, index_folder, "event_right_corners.png")
-
-    rgb_l = cv2.imread(  rgb_l_path,   cv2.IMREAD_GRAYSCALE)
-    rgb_r = cv2.imread(  rgb_r_path,   cv2.IMREAD_GRAYSCALE)
-    event_l = cv2.imread(event_l_path, cv2.IMREAD_GRAYSCALE)
-    event_r = cv2.imread(event_r_path, cv2.IMREAD_GRAYSCALE)
-
-    rgb_l = cv2.cvtColor(rgb_l, cv2.COLOR_GRAY2BGR)
-    rgb_r = cv2.cvtColor(rgb_r, cv2.COLOR_GRAY2BGR)
-    event_l = cv2.cvtColor(event_l, cv2.COLOR_GRAY2BGR)
-    event_r = cv2.cvtColor(event_r, cv2.COLOR_GRAY2BGR)
-
-    print(f"For visual inspection I save all the corners loaded.")
-
-    all_corners_rgb_l = cv2.cvtColor(cv2.imread(   rgb_l_path,   cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
-    all_corners_rgb_r = cv2.cvtColor(cv2.imread(   rgb_r_path,   cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
-    all_corners_event_l = cv2.cvtColor(cv2.imread( event_l_path, cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
-    all_corners_event_r = cv2.cvtColor(cv2.imread( event_r_path, cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
-    for i in range(len(cs.corners_rgb_l)):
-        all_corners_rgb_l = cv2.drawChessboardCorners(all_corners_rgb_l, PATTERN_SIZE, cs.corners_rgb_l[i], True)
-        all_corners_rgb_r = cv2.drawChessboardCorners(all_corners_rgb_r, PATTERN_SIZE, cs.corners_rgb_r[i], True)
-        all_corners_event_l = cv2.drawChessboardCorners(all_corners_event_l, PATTERN_SIZE, cs.corners_event_l[i], True)
-        all_corners_event_r = cv2.drawChessboardCorners(all_corners_event_r, PATTERN_SIZE, cs.corners_event_r[i], True)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_rgb_l.png"), all_corners_rgb_l)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_rgb_r.png"), all_corners_rgb_r)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_event_l.png"), all_corners_event_l)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "all_corners_event_r.png"), all_corners_event_r)
-
-    print(f"rgb_l {rgb_l.shape}")
-    print(f"rgb_r {rgb_r.shape}")
-    print(f"event_l {event_l.shape}")
-    print(f"event_r {event_r.shape}")
-
-
-    rgb_image_size = (rgb_l.shape[1], rgb_l.shape[0])
-    event_image_size = (event_l.shape[1], event_l.shape[0])
-
-    pattern_points = np.zeros((np.prod(PATTERN_SIZE), 3), np.float32)
-    pattern_points[:, :2] = np.indices(PATTERN_SIZE).T.reshape(-1, 2)
-    pattern_points *= SIDE_SIZE_CM
-    pattern_points_repeated = [pattern_points] * len(cs.corners_rgb_l)
-
-    # Left Rgb anf Right Rgb Stereo Calibrate
-
-    err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
-        pattern_points_repeated, cs.corners_rgb_l, cs.corners_rgb_r, None, None, None, None, rgb_image_size, flags=0)
-    
-    rgb_T = T
-    rgb_R = R
-    rgb_K_left = Kl
-    rgb_D_left = Dl
-    rgb_K_right = Kr
-    rgb_D_right = Dr
-
-    print(f"RGB Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
-    print(f"RGB T = {T.flatten()}")
-
-    # Left Event and Right Event Stereo Calibrate
-
-    err, Kl, Dl, Kr, Dr, R, T, E, F = cv2.stereoCalibrate(
-        pattern_points_repeated, cs.corners_event_l, cs.corners_event_r, None, None, None, None, event_image_size, flags=0)
-
-    event_T = T
-    event_R = R
-    event_K_left = Kl
-    event_D_left = Dl
-    event_K_right = Kr
-    event_D_right = Dr
-
-    print(f"Event Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
-    print(f"Event T = {T.flatten()}")
-
-    # Left Rgb and Left Event Stereo Calibrate
-
-    rgb_event_K_left = rgb_K_left.copy()
-    rgb_event_D_left = rgb_D_left.copy()
-    rgb_event_K_right = event_K_right.copy()
-    rgb_event_D_right = event_D_right.copy()
-
-    err, _, _, _, _, R, T, E, F = cv2.stereoCalibrate(
-        pattern_points_repeated, cs.corners_rgb_l, cs.corners_event_l, rgb_event_K_left, rgb_event_D_left, rgb_event_K_right, rgb_event_D_right, rgb_image_size, flags=0)
-
-    rgb_event_T = T
-    rgb_event_R = R
-
-    print(f"RGB-Event Reprojection Error = {err:.4f} px (<0.5 Excellent, 0.5<1.0 Good, >1.0 Problematic)")
-    print(f"RGB-Event T = {rgb_event_T.flatten()}")
-
-
-    # Let's Rectify RGB
-    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        rgb_K_left, rgb_D_left, rgb_K_right, rgb_D_right, rgb_image_size, rgb_R, rgb_T, alpha=-1
-    )
-    rgb_l_map1, rgb_l_map2 = cv2.initUndistortRectifyMap(
-        rgb_K_left, rgb_D_left, R1, P1, rgb_image_size, cv2.CV_16SC2
-    )
-    rgb_r_map1, rgb_r_map2 = cv2.initUndistortRectifyMap(
-        rgb_K_right, rgb_D_right, R2, P2, rgb_image_size, cv2.CV_16SC2
-    )
-
-    rgb_l_rect, rgb_r_rect, comparison = test_rectification(rgb_l, rgb_r, rgb_l_map1, rgb_l_map2, rgb_r_map1, rgb_r_map2)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_rectification_test.png"), comparison)
-
-    # Let's Rectify Event
-    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        event_K_left, event_D_left, event_K_right, event_D_right, event_image_size, event_R, event_T, alpha=-1
-    )
-    event_l_map1, event_l_map2 = cv2.initUndistortRectifyMap(
-        event_K_left, event_D_left, R1, P1, event_image_size, cv2.CV_16SC2
-    )
-    event_r_map1, event_r_map2 = cv2.initUndistortRectifyMap(
-        event_K_right, event_D_right, R2, P2, event_image_size, cv2.CV_16SC2
-    )
-
-    event_l_rect, event_r_rect, comparison = test_rectification(event_l, event_r, event_l_map1, event_l_map2, event_r_map1, event_r_map2)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "event_rectification_test.png"), comparison)
-
-    # Let's Rectify RGB-Event
-    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        rgb_K_left, rgb_D_left, event_K_left, event_D_left, rgb_image_size, rgb_event_R, rgb_event_T, alpha=-1, 
-    )
-    rgb_event_l_map1, rgb_event_l_map2 = cv2.initUndistortRectifyMap(
-        rgb_K_left, rgb_D_left, R1, P1, rgb_image_size, cv2.CV_16SC2
-    )
-    rgb_event_r_map1, rgb_event_r_map2 = cv2.initUndistortRectifyMap(
-        event_K_left, event_D_left, R2, P2, rgb_image_size, cv2.CV_16SC2
-    )
-
-    rgb_event_l_rect, rgb_event_r_rect, comparison = test_rectification(rgb_l, event_l, rgb_event_l_map1, rgb_event_l_map2, rgb_event_r_map1, rgb_event_r_map2)
-    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_rectification_test.png"), comparison)
-
-    # TODO: Rectification between everything and RGB Left
-
-    print(f"RGB T = {rgb_T}")
-    print(f"Event T = {event_T}")
-
-    T_rgb_to_pattern = []
-    T_event_to_pattern = []
-
-    for corner_rgb_l, corner_event_l in tqdm(zip(cs.corners_rgb_l, cs.corners_event_l), total=len(cs.corners_rgb_l)):
-        
-        # There we compute the rotation and translation from the pattern to the camera
-        # Where patterns points are in the pattern coordinate system (3D points in real world space)
-        # and corners are the detected 2D points in the image
-        rgb_success, rgb_rvec, rgb_tvec = cv2.solvePnP(
-            pattern_points, # shape (N, 3)
-            corner_rgb_l,   # shape (N, 2)
-            rgb_K_left,     # shape (3, 3) Camera Matrix
-            rgb_D_left,     # shape (1, 5) or (1, 8) Distortion Coefficients
-            flags=cv2.SOLVEPNP_ITERATIVE
-        )
-
-        event_success, event_rvec, event_tvec = cv2.solvePnP(
-            pattern_points,
-            corner_event_l,
-            event_K_left,
-            event_D_left,
-            flags=cv2.SOLVEPNP_ITERATIVE
-        )
-
-        if rgb_success and event_success:
-            R_rgb, _ = cv2.Rodrigues(rgb_rvec)
-            t_rgb    = rgb_tvec.flatten()
-            R_event, _ = cv2.Rodrigues(event_rvec)
-            t_event    = event_tvec.flatten()
-
-            T_rgb = np.eye(4) 
-            T_rgb[:3, :3] = R_rgb
-            T_rgb[:3, 3] = t_rgb
-            
-            T_event = np.eye(4)
-            T_event[:3, :3] = R_event
-            T_event[:3, 3] = t_event
-            
-            T_rgb_to_pattern.append(T_rgb)
-            T_event_to_pattern.append(T_event)
-
-            # Debug: Check the first pattern point reprojection
-            first_pattern_point = pattern_points[0, :]
-            homogeneous_first_pattern_point = np.ones((4, 1))
-            homogeneous_first_pattern_point[:3, 0] = first_pattern_point
-
-            l_rgb_rs = T_rgb @ homogeneous_first_pattern_point
-            # print(f"First Pattern Point in Left RGB Camera Reference System:\n{l_rgb_rs}")
-
-            l_event_rs = T_event @ homogeneous_first_pattern_point
-            # print(f"First Pattern Point in Left Event Camera Reference System:\n{l_event_rs}")
-            diff = (l_rgb_rs - l_event_rs).flatten()[:3]
-            # print(f"DIFF = {diff}")
-        else:
-            print("WTF PnP failed!")
-
-    T_estimates = []
-    for T_rgb, T_event in zip(T_rgb_to_pattern, T_event_to_pattern):
-        T_rgb_inv = np.linalg.inv(T_rgb)
-        T_rgb_to_event = T_event @ T_rgb_inv
-        T_estimates.append(T_rgb_to_event)
-    
-    # Media delle trasformazioni
-    rotations = [T[:3, :3] for T in T_estimates]
-    translations = [T[:3, 3] for T in T_estimates]
-    
-    R_mean = Rotation.from_matrix(rotations).mean().as_matrix()
-    t_mean = np.mean(translations, axis=0)
-
-    print(f"T RGB_to_Event = {t_mean}")
-    print(f"R RGB_to_Event = {R_mean}") 
-
-
-    # Let's warp event on rgb:
-
-    h, w = rgb_l.shape[:2]
-
-    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
-        rgb_event_K_left,  rgb_event_D_left,
-        rgb_event_K_right, rgb_event_D_right,
-        (w, h),
-        rgb_event_R,
-        rgb_event_T,
-        flags=cv2.CALIB_ZERO_DISPARITY,
-        alpha=-1
-    )
-
-    map1_l, map2_l = cv2.initUndistortRectifyMap(
-        rgb_event_K_left, rgb_event_D_left,
-        R1, P1,
-        (w, h),
-        cv2.CV_32FC1
-    )
-
-    map1_r, map2_r = cv2.initUndistortRectifyMap(
-        rgb_event_K_right, rgb_event_D_right,
-        R2, P2,
-        (w, h),
-        cv2.CV_32FC1
-    )
-
-    rect_left  = cv2.remap(rgb_l,   map1_l, map2_l, cv2.INTER_LINEAR)
-    rect_right = cv2.remap(event_l, map1_r, map2_r, cv2.INTER_LINEAR)
-
-    overlay = cv2.addWeighted(rect_left, 0.5, rect_right, 0.5, 0)
-
-    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_overlay.png"), overlay)
-
-    # Stack rect_left (top) and rect_right (bottom), save and display
-    vertical_stack = np.vstack((rect_left, rect_right))
-    cv2.imwrite(os.path.join(current_folder_calib_results, "rgb_event_vertical_stack.png"), vertical_stack)
-
+    out = os.path.join(results, "rgb_event_calibration.npz")
     np.savez(
-        os.path.join(current_folder_calib_results, "rgb_event_calibration.npz"),
-        rgb_K_left = rgb_K_left,
-        rgb_D_left = rgb_D_left,
-        rgb_K_right = rgb_K_right,
-        rgb_D_right = rgb_D_right,
-        event_K_left = event_K_left,
-        event_D_left = event_D_left,
-        event_K_right = event_K_right,
-        event_D_right = event_D_right,
-        rgb_R = rgb_R,
-        rgb_T = rgb_T,
-        event_R = event_R,
-        event_T = event_T,
-        rgb_event_R = rgb_event_R,
-        rgb_event_T = rgb_event_T,
+        out,
+        pipeline_version=PIPELINE_VERSION,
+        calibration_image_size=np.array(image_size),
+        rgb_roi_fraction=np.array(config.RGB_ROI_FRACTION),
+        pattern_size=np.array(config.PATTERN_SIZE),
+        square_size_mm=config.SQUARE_SIZE_MM,
+        n_boards=len(samples),
+        rgb_K_left=intrinsics["rgb_left"][1], rgb_D_left=intrinsics["rgb_left"][2],
+        rgb_K_right=intrinsics["rgb_right"][1], rgb_D_right=intrinsics["rgb_right"][2],
+        event_K_left=intrinsics["event_left"][1], event_D_left=intrinsics["event_left"][2],
+        event_K_right=intrinsics["event_right"][1], event_D_right=intrinsics["event_right"][2],
+        rgb_R=rgb_R, rgb_T=rgb_T, rgb_rms=rgb_rms,
+        event_R=event_R, event_T=event_T, event_rms=event_rms,
+        rgb_event_R=rgb_event_R, rgb_event_T=rgb_event_T, rgb_event_rms=rgb_event_rms,
     )
-
-    # After stereoCalibrate, reproject and filter
-    total_error = 0
-    per_image_errors = []
-    for i in range(len(pattern_points_repeated)):
-        imgpoints2, _ = cv2.projectPoints(
-            pattern_points_repeated[i], 
-            rvecs[i], tvecs[i], Kl, Dl
-        )
-        err = cv2.norm(cs.corners_rgb_l[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
-        per_image_errors.append(err)
-
-    # Discard boards above threshold (e.g. 1.0 px)
-    good_indices = [i for i, e in enumerate(per_image_errors) if e < 1.0]
-    print(per_image_errors)
+    print(f"Results in {results}")
+    if not args.no_install:
+        shutil.copy(out, config.RGB_EVENT_CALIBRATION_FILE)
+        print(f"Installed as {config.RGB_EVENT_CALIBRATION_FILE}")
 
 
 if __name__ == "__main__":

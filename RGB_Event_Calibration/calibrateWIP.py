@@ -15,7 +15,7 @@ from warp import undistort, compute_homography, warp_image
 
 
 PATTERN_SIZE = (9, 6)
-SIDE_SIZE_CM = 2.1 # 3 schermo di Luca
+SIDE_SIZE_CM = 2.9
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
 
@@ -120,34 +120,12 @@ def main():
         corners_rgb_l_fine   = np.load(rgb_l_corners_path)
         corners_rgb_r_fine   = np.load(rgb_r_corners_path)
                 
-        # =========================
-        # NUOVO: flip orizzontale corretto chessboard
-        # =========================
-
-        corners_event_l_fine = np.load(event_l_corners_path)
-        corners_event_r_fine = np.load(event_r_corners_path)
-
-        corners_event_l_fine = corners_event_l_fine.reshape(PATTERN_SIZE[1], PATTERN_SIZE[0], 2)
-        corners_event_r_fine = corners_event_r_fine.reshape(PATTERN_SIZE[1], PATTERN_SIZE[0], 2)
-
-        # flip colonne
-        corners_event_l_fine = corners_event_l_fine[:, ::-1, :]
-        corners_event_r_fine = corners_event_r_fine[:, ::-1, :]
-
-        corners_event_l_fine = corners_event_l_fine.reshape(-1, 1, 2)
-        corners_event_r_fine = corners_event_r_fine.reshape(-1, 1, 2)
-
-        
-
-        # NUOVO
-        corners_event_l_fine = corners_event_l_fine.reshape(PATTERN_SIZE[1], PATTERN_SIZE[0], 2)
-        corners_event_l_fine = np.flip(corners_event_l_fine, axis=1)
-        corners_event_l_fine = corners_event_l_fine.reshape(-1, 2)
-
-        corners_event_r_fine = corners_event_r_fine.reshape(PATTERN_SIZE[1], PATTERN_SIZE[0], 2)
-        corners_event_r_fine = np.flip(corners_event_r_fine, axis=1)
-        corners_event_r_fine = corners_event_r_fine.reshape(-1, 2)
-
+        # The two column flips that were here cancelled each other out. No flip is
+        # needed: the event corners are detected in the same order as the RGB ones
+        # (checked on processed_data/2026_04_15_11_05_38). See canonical_corners()
+        # in cvlab/calibration.py, used by the new process_calibration_data.py.
+        corners_event_l_fine = np.load(event_l_corners_path).reshape(-1, 2)
+        corners_event_r_fine = np.load(event_r_corners_path).reshape(-1, 2)
 
         print("RGB FIRST =", corners_rgb_l_fine[0])
         print("RGB LAST  =", corners_rgb_l_fine[-1])
