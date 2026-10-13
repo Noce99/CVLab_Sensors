@@ -38,12 +38,6 @@
                 <button id="open-pattern" class="btn-secondary">Blinking pattern</button>
             </div>
             {% endif %}
-            {% if tool.timed_capture %}
-            <div class="pattern-launch">
-                <label class="toggle" title="Seconds of Livox points per board: hold the board still meanwhile">
-                    Hold <input type="number" id="capture-seconds" min="1" max="30" step="1" value="{{ tool.capture_s }}"> s</label>
-            </div>
-            {% endif %}
             <div class="pattern-launch">
                 <label class="toggle">Every <input type="number" id="auto-interval" min="0.2" step="0.5" value="1"> s</label>
                 <button id="auto-capture" class="btn-secondary">Automatic capture</button>

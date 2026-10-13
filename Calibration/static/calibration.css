@@ -98,6 +98,10 @@ main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
     padding: 8px 12px;
 }
 .camera-header h2 { flex: 1; }
+.hold-bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px 0; font-size: 12px; }
+.hold-bar .progress { flex: 1; }
+.hold-bar .progress-fill { transition: width .1s linear; }
+.hold-bar input { width: 4em; }
 .camera-footer { font-size: 12px; color: var(--muted); justify-content: space-between; }
 .camera-footer .missing { color: var(--warn); }
 .camera-footer .missing.done { color: var(--ok); }

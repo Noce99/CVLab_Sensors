@@ -2,18 +2,21 @@
 convention of cvlab.lidar (x right, y down, z forward), into a reflectivity image of
 config.LIVOX_IMAGE_SIZE where the chessboard is searched like in a camera image.
 
-Projection, reflectivity image, gamma search and the depth helpers follow
-~/Downloads/LidarCameraCalibration_Solution.ipynb.
+Projection, reflectivity image and the depth helpers follow
+~/Downloads/LidarCameraCalibration_Solution.ipynb; the chessboard search is tuned on live data (see
+find_lidar_corners).
 """
 
 import cv2
 import numpy as np
 
 from cvlab import config
-from cvlab.calibration import adjust_gamma, find_corners
+from cvlab.calibration import adjust_gamma, canonical_corners
 from cvlab.lidar import MIN_DISTANCE_MM
 
-LIDAR_GAMMAS = range(1, 21)   # brightening gammas tried, in order: the reflectivity image is dark
+# White levels tried, in order: intensities above are clipped. A printed board is dark for the Livox
+# (white squares ~6-11 of 255 at 1-2 m) next to bright outliers, so the board is found by a low clip
+LIDAR_WHITE_LEVELS = (6, 8, 10, 12, 15, 20, 30, 50, 80, 130, 255)
 PREVIEW_GAMMA = 5
 
 
@@ -50,11 +53,20 @@ def reflectivity_image(xyz, intensity, size=config.LIVOX_IMAGE_SIZE):
 
 
 def find_lidar_corners(image):
-    """(corners (N, 2) canonically ordered, gamma) of the chessboard in a reflectivity image, or (None, None)."""
-    for gamma in LIDAR_GAMMAS:
-        corners = find_corners(adjust_gamma(image, 1.0 / gamma), subpix=False)
-        if corners is not None:
-            return corners, gamma
+    """(corners (N, 2) canonically ordered, white level) of the chessboard in a reflectivity image,
+    or (None, None).
+
+    What the Livox sees of a board: the black squares return (almost) nothing, so they are the 0 of
+    "no point", and look smaller than they are (a spot that touches white returns white); the white
+    squares are very dark with scan holes. Tested on 20 s of a still board at ~1.5 m where the old
+    search (gammas, default flags) never found it: the exhaustive search on the clipped image finds it
+    in every window of >= 4 s (15/18 of 2 s), corners within 0.2 px (median) between windows."""
+    for white in LIDAR_WHITE_LEVELS:
+        clipped = np.sqrt(np.minimum(image.astype(np.float32), white) / white)
+        found, corners = cv2.findChessboardCornersSB((clipped * 255).astype(np.uint8), config.PATTERN_SIZE,
+                                                     flags=cv2.CALIB_CB_EXHAUSTIVE)
+        if found:
+            return canonical_corners(corners), white
     return None, None
 
 

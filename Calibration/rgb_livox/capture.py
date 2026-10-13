@@ -37,7 +37,7 @@ TOOL = {
     "aspect": {"rgb_left": list(config.CALIBRATION_IMAGE_SIZE), "livox": list(config.LIVOX_IMAGE_SIZE)},
     "pattern": False,         # the Livox sees reflectivity: a printed board works
     "save_failed": False,
-    "timed_capture": True,
+    "timed_capture": "livox",   # the camera that accumulates during a capture: its tile has the time bar
     "capture_s": config.LIVOX_CAPTURE_S,
     "solve_url": "/rgb-livox/calibrate",
 }
@@ -112,14 +112,14 @@ class RgbLivoxCapture:
 
         rgb_futures = [self.pool.submit(rgb_search, frame[1]) for frame in frames]
         reflectivity = lidar_image.reflectivity_image(xyz, intensity)
-        lidar_corners, gamma = lidar_image.find_lidar_corners(reflectivity)
+        lidar_corners, white = lidar_image.find_lidar_corners(reflectivity)
         rgb_results = [f.result() for f in rgb_futures]
 
         rgb_corners, rgb_variant, rgb_gray = rgb_results[-1]
         # Still: every RGB sample that sees the board agrees with the last one
         seen = [c for c, _, _ in rgb_results if c is not None]
         drift_px = max((np.max(np.abs(c - rgb_corners)) for c in seen), default=0.0) if rgb_corners is not None else None
-        moving = rgb_corners is not None and (len(seen) < 2 or drift_px > STILL_BOARD_PX)
+        moving = bool(rgb_corners is not None and (len(seen) < 2 or drift_px > STILL_BOARD_PX))
 
         lidar_display = lidar_image.display(reflectivity)
         corners = {"rgb_left": rgb_corners, "livox": lidar_corners}
@@ -128,7 +128,7 @@ class RgbLivoxCapture:
         result = {"cameras": {}, "saved": None, "duplicate_of": None,
                   "moving": moving and lidar_corners is not None,
                   "points": int(len(xyz)), "rgb_drift_px": None if drift_px is None else round(float(drift_px), 2)}
-        for cam, variant, t in [("rgb_left", rgb_variant, frames[-1][0]), ("livox", None if gamma is None else [gamma, 0, 0], end_us)]:
+        for cam, variant, t in [("rgb_left", rgb_variant, frames[-1][0]), ("livox", None if white is None else f"white level {white}", end_us)]:
             c = corners[cam]
             result["cameras"][cam] = {"found": c is not None, "variant": variant,
                                       "age_ms": round((now_us - t) / 1e3),
@@ -140,7 +140,7 @@ class RgbLivoxCapture:
             if result["duplicate_of"] is None:
                 log = (f"Captured {datetime.now().isoformat()} by Calibration/rgb_livox/capture.py\n"
                        f"Livox: {len(xyz)} points from host time {start_us} to {end_us} us ({seconds} s), "
-                       f"board found with gamma {gamma}\n"
+                       f"board found with white level {white}\n"
                        f"rgb_left: {len(frames)} samples, board in {len(seen)}, max drift {drift_px:.2f} px; "
                        f"last at host time {frames[-1][0]} us, found with (gamma, blur, clahe) = {rgb_variant}\n")
                 full = frames[-1][1]

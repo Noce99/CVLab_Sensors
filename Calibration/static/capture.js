@@ -92,6 +92,12 @@ function buildCameraTiles() {
                     <img id="live-${cam}" alt="">
                     <canvas id="overlay-${cam}"></canvas>
                 </div>
+                ${cam === TOOL.timed_capture ? `
+                <div class="hold-bar" title="Seconds of points per board: hold the board still meanwhile">
+                    <label class="toggle">Accumulate <input type="number" id="capture-seconds" class="field" min="1" max="30" step="1" value="${TOOL.capture_s}"> s</label>
+                    <div class="progress"><div class="progress-fill" id="hold-fill"></div></div>
+                    <span class="muted" id="hold-left"></span>
+                </div>` : ''}
                 <div class="camera-footer">
                     <span id="count-${cam}">0 boards</span>
                     <span class="missing" id="missing-${cam}"></span>
@@ -195,7 +201,7 @@ async function capture() {
     } catch (error) {
         setMessage(`Capture failed: ${error.message}`, 'bad');
     } finally {
-        clearInterval(countdown);
+        if (countdown) countdown();
         capturing = false;
         updateCaptureButtons();
         scheduleAutoCapture();
@@ -204,13 +210,24 @@ async function capture() {
 
 // Timed capture: the board must stay still while the points are collected
 function startCountdown(seconds) {
-    const end = Date.now() + seconds * 1000;
+    const start = Date.now();
+    const fill = document.getElementById('hold-fill');
+    const label = document.getElementById('hold-left');
+    fill.classList.remove('ok');
     const tick = () => {
-        const left = Math.ceil((end - Date.now()) / 1000);
-        setMessage(left > 0 ? `Hold the board still… ${left} s` : 'Searching the chessboard…', '');
+        const elapsed = Math.min((Date.now() - start) / 1000, seconds);
+        const left = Math.ceil(seconds - elapsed);
+        fill.style.width = `${100 * elapsed / seconds}%`;
+        // Only in the bar: the message line keeps the result / warnings of the previous capture
+        label.textContent = left > 0 ? `hold the board still, ${left} s` : 'searching the chessboard…';
     };
     tick();
-    return setInterval(tick, 250);
+    const timer = setInterval(tick, 100);
+    return () => {
+        clearInterval(timer);
+        fill.style.width = '0';
+        label.textContent = '';
+    };
 }
 
 function manualCapture() {
@@ -274,9 +291,10 @@ function showCapture(result) {
     drawAllOverlays();
 }
 
-// Image correction that found the board: [gamma, blur kernel, CLAHE clip(, event rendering)]
+// Image correction that found the board: [gamma, blur kernel, CLAHE clip(, event rendering)], or a text
 function variantLabel(variant) {
     if (!variant) return '';
+    if (typeof variant === 'string') return ` (${variant})`;
     const [gamma, blur, clahe, rendering] = variant;
     const parts = rendering && rendering !== 'count' ? [rendering] : [];
     if (clahe) parts.push(`CLAHE ${clahe}`);
