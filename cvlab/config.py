@@ -12,20 +12,28 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYTHON = REPO_ROOT / "venv_3_12" / "bin" / "python"
 
+# Everything the tools write (gitignored)
+DATA_DIR = Path(os.environ.get("CVLAB_DATA_DIR", REPO_ROOT / "data")).resolve()
+
 # Sessions are recorded into STAGING_DIR and moved (atomic rename, same
 # filesystem) to SESSIONS_DIR when saved: <SESSIONS_DIR>/<YYYY_MM_DD__HH_MM_SS>/
-STAGING_DIR = Path(os.environ.get("CVLAB_STAGING_DIR", REPO_ROOT / "get_data" / "data"))
-SESSIONS_DIR = Path(os.environ.get("CVLAB_SESSIONS_DIR", REPO_ROOT / "CVLab_live_imgs"))
+STAGING_DIR = Path(os.environ.get("CVLAB_STAGING_DIR", DATA_DIR / "staging")).resolve()
+SESSIONS_DIR = Path(os.environ.get("CVLAB_SESSIONS_DIR", DATA_DIR / "sessions")).resolve()
 SESSION_NAME_FORMAT = "%Y_%m_%d__%H_%M_%S"
 
-# Recorders
-GET_DATA_DIR = REPO_ROOT / "get_data"
-RGB_RECORDER = GET_DATA_DIR / "rgb.py"
-EVENT_RECORDER = GET_DATA_DIR / "event.py"
-LIVOX_RECORDER = GET_DATA_DIR / "cpp" / "save_point_cloud_livox"
-HESAI_RECORDER = GET_DATA_DIR / "cpp" / "save_point_cloud_hesai"
-LIVOX_CONFIG = GET_DATA_DIR / "config" / "livox_hap.json"
-RESET_EVENT_CAMERAS_SCRIPT = GET_DATA_DIR / "scripts" / "disconnect_and_reconnect_event_cameras.sh"
+# Calibration captures and results: <CALIBRATION_DIR>/<tool>/{captures,results}/
+CALIBRATION_DIR = DATA_DIR / "calibration"
+# Outputs of the lidar recorders run by the live calibration tools, emptied as they are read
+STREAM_DIR = DATA_DIR / "stream"
+
+# Recorders: Python modules (run with python -m from REPO_ROOT) and native programs
+RGB_RECORDER = "cvlab.recording.rgb_recorder"
+EVENT_RECORDER = "cvlab.recording.event_recorder"
+LIDAR_RECORDERS_DIR = REPO_ROOT / "lidar_recorders"
+LIVOX_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_livox"
+HESAI_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_hesai"
+LIVOX_CONFIG = LIDAR_RECORDERS_DIR / "livox_hap.json"
+RESET_EVENT_CAMERAS_SCRIPT = REPO_ROOT / "system" / "reset_event_cameras.sh"
 
 # Recording stops automatically when the staging disk has less free space than this
 MIN_FREE_DISK_GB = 2.0
@@ -92,7 +100,7 @@ EVENT_CALIBRATION_MAX_RATE = 20_000_000
 # The same for recordings: uncapped, a flickering lab reached ~38 Mev/s per camera
 # (~150 MB/s of raw data each, events delivered late) on 2026-10-09.
 EVENT_RECORD_MAX_RATE = 20_000_000
-# Pixels masked in hardware (x, y). Find them with get_data/find_hot_pixels.py.
+# Pixels masked in hardware (x, y). Find them with python -m cvlab.tools.find_hot_pixels.
 EVENT_HOT_PIXELS = {
     EVENT_LEFT_SERIAL: [(1186, 491), (397, 348), (798, 380)],  # 87% of all events on 2026-10-09
     EVENT_RIGHT_SERIAL: [(1240, 176)],  # 83% of all events on 2026-10-09
@@ -103,7 +111,7 @@ EVENT_HOT_PIXELS = {
 # ============================================================================
 
 HESAI_IP = "192.168.1.91"   # XT32
-LIVOX_IP = "192.168.1.100"  # HAP (set in LIVOX_CONFIG)
+# Livox HAP: 192.168.1.100, set in LIVOX_CONFIG
 
 # Coarse rotation from each lidar's native frame to the camera convention
 # (x right, y down, z forward). Replace with calibrated extrinsics when available.
@@ -150,9 +158,9 @@ EVENT_RENDERINGS = ["lockin", "polarity", "count"]
 # before calibration; every consumer of the calibration must do the same.
 CALIBRATION_IMAGE_SIZE = (1280, 720)
 
-# Active calibrations, written by Calibration/rgb_event/solve.py and Calibration/rgb_livox/solve.py
-RGB_EVENT_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "rgb_event_calibration.npz"
-RGB_LIVOX_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "rgb_livox_calibration.npz"
+# Installed calibrations, written by the solvers (cvlab/calibration/*/solve.py)
+RGB_EVENT_CALIBRATION_FILE = CALIBRATION_DIR / "rgb_event_calibration.npz"
+RGB_LIVOX_CALIBRATION_FILE = CALIBRATION_DIR / "rgb_livox_calibration.npz"
 
 # RGB <-> Livox: the Livox points are projected by a virtual pinhole camera (camera-convention
 # axes, no distortion) into a reflectivity image where the chessboard is searched. The HAP sees
@@ -162,7 +170,7 @@ LIVOX_FOCAL_PX = 800.0
 LIVOX_CAPTURE_S = 8          # default seconds of points per board (the HAP pattern fills in over time)
 
 # Livox <-> Hesai (target-free, static scenes): P_livox = R P_hesai + t in the camera convention.
-LIVOX_HESAI_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "livox_hesai_calibration.npz"
+LIVOX_HESAI_CALIBRATION_FILE = CALIBRATION_DIR / "livox_hesai_calibration.npz"
 LIVOX_HESAI_CAPTURE_S = 15   # default seconds per stop
 # Initial guess: Hesai origin in the Livox frame (x right, y down, z forward), mm. A ruler is enough:
 # the registration converges from +-10 deg / +-30 cm. Measured by registration on 2026-10-13.

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Replay</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body class="has-timeline">
+    <header>
+        <div class="title">
+            <a class="back" href="/">← Tools</a>
+            <h1>Replay</h1>
+            <span class="muted">Recorded data at its resolution, rendered on the server for the chosen time</span>
+        </div>
+        <div class="actions replay-controls">
+            <label class="toggle">Session
+                <select id="session" class="field"></select>
+            </label>
+            <label class="toggle">View
+                <select id="view" class="field">
+                    <option value="overlay">All on RGB left</option>
+                    {% for s in sensors %}<option value="{{ s }}">{{ labels[s] }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="toggle" title="Calibration size (1280x720) or the full recorded RGB frame">Resolution
+                <select id="res" class="field">
+                    <option value="calibration">1280×720</option>
+                    <option value="full">Full</option>
+                </select>
+            </label>
+            <label class="toggle" title="Lidar points of this long before the time shown (the Livox pattern fills in over time)">
+                Lidar <input type="number" id="lidar-ms" class="field" min="10" max="10000" step="10" value="100"> ms</label>
+            <label class="toggle" id="warp-label" title="How the other cameras are reprojected on RGB left: through the lidar depth of each pixel (needs the RGB ↔ Livox calibration), or all at one distance">Warp
+                <select id="warp" class="field">
+                    <option value="lidar">Lidar depth</option>
+                    <option value="plane">Plane</option>
+                </select>
+            </label>
+            <label class="toggle" id="depth-label" title="Distance of the plane: used for everything with Warp = Plane, and where the lidars see nothing with Warp = Lidar depth (exact at that distance, parallax elsewhere)">
+                Plane <input type="number" id="depth" class="field" min="0.5" max="200" step="0.25" value="5"> m</label>
+        </div>
+    </header>
+
+    <main>
+        <section class="panel" id="staging-panel" hidden>
+            <div class="panel-header">
+                <h2>Not saved</h2>
+                <span class="message" id="staging-message"></span>
+            </div>
+            <div class="progress-body">
+                <span class="muted">This session is still in <code>data/staging/</code>: recorded, but neither saved nor discarded on the Record page.</span>
+                <div class="prepare-row">
+                    <button id="save-session" class="btn-secondary" title="Move the session to data/sessions/">Save</button>
+                    <button id="discard-session" class="btn-secondary" title="Delete the session">Discard</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel" id="prepare-panel" hidden>
+            <div class="panel-header">
+                <h2>Events not prepared</h2>
+                <span class="message" id="prepare-message"></span>
+            </div>
+            <div class="progress-body">
+                <span class="muted">Event recordings are rendered once into frames (every 1/30 s) so they can be shown at any time; it takes about as long as the recording.</span>
+                <div class="prepare-row">
+                    <button id="prepare" class="btn-secondary">Prepare events</button>
+                    <div class="progress"><div class="progress-fill" id="prepare-fill"></div></div>
+                    <span class="muted" id="prepare-pct"></span>
+                </div>
+            </div>
+        </section>
+
+        <div class="replay-layout">
+            <section class="panel replay-stage-panel">
+                <div class="replay-stage" id="stage">
+                    <div class="placeholder" id="placeholder">Pick a session</div>
+                    <img id="frame" alt="">
+                </div>
+                <div class="camera-footer"><span id="frame-info" class="muted"></span><span id="render-ms" class="muted"></span></div>
+            </section>
+
+            <section class="panel layers" id="layers">
+                <div class="panel-header"><h2>Sensors on RGB left</h2></div>
+                <div class="layer-list">
+                    {% for s in sensors %}
+                    <div class="layer" data-sensor="{{ s }}">
+                        <label class="toggle"><input type="checkbox" class="layer-on" {% if alphas[s] > 0 %}checked{% endif %}>
+                            <span class="dot layer-dot {{ s.split('_')[0] }}"></span>{{ labels[s] }}</label>
+                        <input type="range" class="layer-alpha" min="0" max="100" value="{{ ((alphas[s] or 0.6) * 100) | int }}">
+                        <span class="layer-status muted"></span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="muted layer-note">Lidar points: red near, blue far. Event pixels: white ON, blue OFF.</p>
+            </section>
+        </div>
+    </main>
+
+    <footer class="timeline">
+        <canvas id="availability" title="Data of each sensor along the session"></canvas>
+        <input type="range" id="scrub" min="0" max="1000" value="0" step="1">
+        <div class="timeline-controls">
+            <button id="step-back" class="btn-secondary" title="Previous RGB frame (←)">⏮</button>
+            <button id="play" class="btn-capture" title="Play / pause (Space)">▶</button>
+            <button id="step-forward" class="btn-secondary" title="Next RGB frame (→)">⏭</button>
+            <label class="toggle">Speed
+                <select id="speed" class="field">
+                    <option value="0.25">×0.25</option><option value="0.5">×0.5</option>
+                    <option value="1" selected>×1</option><option value="2">×2</option><option value="4">×4</option>
+                </select>
+            </label>
+            <span class="time" id="time">--:--:--.---</span>
+            <span class="muted" id="offset">+0.000 / 0.000 s</span>
+            <label class="toggle">Go to <input type="number" id="goto" class="field" step="0.001" min="0"> s</label>
+        </div>
+    </footer>
+
+    <script>const LABELS = {{ labels | tojson }}; const SENSORS = {{ sensors | tojson }};</script>
+    <script src="{{ url_for('static', filename='replay.js') }}"></script>
+</body>
+</html>

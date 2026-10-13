@@ -1,1 +1,0 @@
-../../get_data/cpp/save_point_cloud_hesai.cpp

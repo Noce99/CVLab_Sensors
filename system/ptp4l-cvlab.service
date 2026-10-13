@@ -1,0 +1,18 @@
+# PTP grandmaster for the sensor rig.
+# Install:
+#   sudo cp system/ptp4l-cvlab.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ptp4l-cvlab
+# Check: journalctl -u ptp4l-cvlab -f
+
+[Unit]
+Description=PTP grandmaster (software timestamping) for the CVLab sensors
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/sbin/ptp4l -f /home/ubm/CVLab_Sensors/system/ptp4l.conf -m
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

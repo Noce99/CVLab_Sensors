@@ -1,23 +1,10 @@
-venv_*_*
-custom_filter.path
-__pycache__
-.vscode/
-LivoxLidar/get_data_from_hap
-calibration_data/
-processed_data/
-calibration_results/
-calibration_data_events/
-venv
-Cameras_Server/live_imgs/
-get_data/data/
-Cameras_Server/temp_event_frames/
-RGB_From_All_Sensors/rgb_images/
-CVLab_live_imgs/20*
-CVLab_live_imgs/*.zip
-CVLab_live_imgs/*.png
-CVLab_live_imgs/*.npz
-prophecee_venv/failed_captures/
-Calibration/*/failed_captures/
-Calibration/rgb_livox/legacy/
-Calibration/stream/
+# Recordings, calibration captures and results, installed calibrations
+data/
+
+# Python environments
+venv*/
 prophecee_venv/
+Cameras_Server/venv/
+__pycache__/
+
+.vscode/

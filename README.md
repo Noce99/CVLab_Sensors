@@ -1,61 +1,63 @@
 # CVLab Sensors
 
+One web app drives the sensor rig: record sessions, replay them, and calibrate the sensors.
+
+```
+venv_3_12/bin/python -m cvlab          # from the repo root, then open http://<NUC_IP>:5001
+```
+
 | Computers | ssh                      |
 | --------  | -------                  |
 | Orin      | `ssh cvlab@192.168.1.49` |
 | Nuc       | `ssh ubm@192.168.1.50`   |
 
-| Sensor Type | Sensor Name | SDK | Connection | IP | Instructions |
+| Sensor Type | Sensor Name | SDK | Connection | IP | Used by the app |
 | --------    | -------     | -------   | ------- | ------- | ------- |
-| Lidar  | OT128  | [HesaiLidar SDK](https://github.com/HesaiTechnology/HesaiLidar_SDK_2.0) | Ethernet | 192.168.1.90 |[Hesai Lidar](#hesai_lidar)|
-| Lidar  | XT32  | [HesaiLidar SDK](https://github.com/HesaiTechnology/HesaiLidar_SDK_2.0) | Ethernet | 192.168.1.91 |[Hesai Lidar](#hesai_lidar)|
-| Lidar  | Livox Hap  | [Livox SDK](https://github.com/Livox-SDK/Livox-SDK) | Ethernet | 192.168.1.100 | [Livox Lidar](#livox_lidar) |
-| Lidar  | Livox Mid360  | [Livox SDK](https://github.com/Livox-SDK/Livox-SDK)  | Ethernet | 192.168.1.151 | [Livox Lidar](#livox_lidar)|
-| Event Camera  | EVKV4 - HD | [Premium SDK](https://propheseeai.jfrog.io/ui/repos/tree/General/metavision-sdk-5-debian) | USB | | [Prophesee Event](#prophesee_event) |
-| Depth Camera  | RealSense | [RealSense SDK]() | USB | | [RealSense](#realsense)|
-| RGB Camera | Basler | [PyPylon](https://github.com/basler/pypylon/tree/master) | Ethernet |192.168.1.70-77 | [Basler](#basler) |
+| Lidar  | XT32  | [HesaiLidar SDK](https://github.com/HesaiTechnology/HesaiLidar_SDK_2.0) | Ethernet | 192.168.1.91 | yes |
+| Lidar  | Livox HAP  | [Livox SDK2](https://github.com/Livox-SDK/Livox-SDK2) | Ethernet | 192.168.1.100 | yes |
+| Event Camera  | 2x EVK4 - HD | [Metavision SDK](https://propheseeai.jfrog.io/ui/repos/tree/General/metavision-sdk-5-debian) | USB | | yes |
+| RGB Camera | 2x Basler | [PyPylon](https://github.com/basler/pypylon/tree/master) | Ethernet | 192.168.1.70-71 | yes |
+| Lidar  | OT128  | [HesaiLidar SDK](https://github.com/HesaiTechnology/HesaiLidar_SDK_2.0) | Ethernet | 192.168.1.90 | no |
+| Lidar  | Livox Mid360  | [Livox SDK2](https://github.com/Livox-SDK/Livox-SDK2)  | Ethernet | 192.168.1.151 | no |
+| Depth Camera  | RealSense | [RealSense SDK](https://github.com/IntelRealSense/librealsense) | USB | | no |
 
-## Visualizer
-![RGBs](assets/rgbs.png)
-![Events](assets/events.png)
-
-## Time synchronization (PTP)
-Every Ethernet sensor sits on its own USB network adapter (r8152), which has no
-hardware timestamping. A single `ptp4l` with software timestamping serves the
-NUC system clock to the Basler cameras and the Livox (accuracy: tens of microseconds):
+## Repository layout
 ```
-sudo ptp4l -f get_data/config/ptp4l.conf -m
+cvlab/                     Python package: the web app and everything it uses
+├── __main__.py, app.py    python -m cvlab: Flask app, home page, tool registry
+├── config.py              every setting: IPs, serials, exposure, paths, calibration parameters
+├── web.py                 shared page code: image helpers, background jobs, capture / solve routes
+├── status.py              status JSON and preview files written by the recorders
+├── sensors/               sensor I/O
+│   ├── basler.py, evk4.py     camera settings (Basler pair, EVK4)
+│   ├── events.py, lidar.py    readers of the recorded event (.raw) and lidar (.h5) files
+│   ├── timesync.py            device clock -> host clock mapping
+│   └── live.py                SensorManager: live sensors for the calibration capture pages
+├── recording/             Record page (page.py), recorder processes (recorders.py),
+│                          RGB and event recorders (rgb_recorder.py, event_recorder.py)
+├── replay/                Replay page (page.py), session reader (session.py), reprojection (views.py)
+├── calibration/           common.py (chessboard, captured boards), rig.py (installed rig)
+│   ├── rgb_event/             capture.py + solve.py: 2 Basler + 2 EVK4, intrinsics and extrinsics
+│   ├── rgb_livox/             capture.py + solve.py (+ lidar_image.py): RGB-left <-> Livox
+│   └── livox_hesai/           capture.py + solve.py (+ registration.py): Livox <-> Hesai, target-free
+├── tools/                 check_ptp.py, find_hot_pixels.py
+└── templates/, static/    pages
+lidar_recorders/           C++ Livox / Hesai recorders (built in the SDK trees by compile.sh), livox_hap.json
+system/                    ptp4l config + systemd service, EVK4 USB reset script (sudoers)
+data/                      everything the app writes (not in git)
+├── staging/               sessions being recorded
+├── sessions/              saved sessions
+├── calibration/           <tool>/captures/, <tool>/results/, installed *_calibration.npz
+├── stream/                lidar chunks of the live capture pages (emptied as read)
+└── legacy/                data of the old scripts, kept for reference
 ```
-or install it as a service (starts at boot):
-```
-sudo cp get_data/config/ptp4l-cvlab.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now ptp4l-cvlab
-journalctl -u ptp4l-cvlab -f
-```
-- **Basler**: the RGB recorder refuses to record until both cameras are PTP `Slave` + `Locked`
-  (use `--allow-unsynced` to record anyway). Frames are triggered by the PTP clock
-  (`RGB_PTP_TRIGGER`), so left and right expose at the same instant (measured: < 0.2 ms apart).
-- **Livox HAP**: needs PTP over L2 (set in `ptp4l.conf`); each H5 file stores `time_source` (`livox_ptp` when synced).
-- Check everything with `get_data/check_ptp.py`.
-- **Hesai XT32**: keep its clock source on GPS (free running). It cannot follow a two-step PTP
-  master (software timestamping is always two-step): its clock jumps by seconds. Its H5 files
-  store `sync` pairs, and `cvlab.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
-- **Event cameras** (USB) are not on PTP: their clock is mapped to the host clock through the
-  `*.sync.csv` file written next to each recording. For exact RGB-event sync, wire a Basler output
-  line (LineSource = ExposureActive) into the EVK4 trigger input and set `EVENT_TRIGGER_IN = True`
-  in `cvlab/config.py`.
+Every Python entry point runs as a module from the repo root (`python -m cvlab...`).
 
 ## Recording
-All settings (IPs, serials, exposure, paths, ...) are in `cvlab/config.py`.
-- Web: `venv_3_12/bin/python Calibration/calibrate.py`, then http://<NUC_IP>:5001 → **Record** (start / stop
-  each sensor group, save or discard the session). The live images are the recorders' small previews.
-- Terminal: `venv_3_12/bin/python get_data/get_data.py` (Ctrl+C to stop; `--only rgb event` to record a subset)
-- Old web dashboard: `Cameras_Server/start_server.sh`, then http://<NUC_IP>:5000
+Web app → **Record**: start / stop each sensor group, save or discard the session. The live images are
+the recorders' small previews (`<session>/previews/`), not the recorded data.
 
-The event rate is capped in hardware at `EVENT_RECORD_MAX_RATE` (20 Mev/s per camera): uncapped, a
-flickering lab reached ~38 Mev/s and the events reached the host up to 5 s late.
-
-Sessions are recorded in `get_data/data/<date>/` and moved to `CVLab_live_imgs/<date>/` when saved.
+Sessions are recorded in `data/staging/<date>/` and moved to `data/sessions/<date>/` when saved.
 Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ```
 <session>/
@@ -65,134 +67,123 @@ Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 │                                timestamp_ns (lidar clock), intensity, sync [lidar_ns, host_ns]
 ├── rgb_clock_sync.csv           Basler clock <-> host clock
 ├── logs/, status/, previews/
+├── replay_cache/                event frames rendered by the Replay page
 ```
-Readers for all of these are in `cvlab/` (`lidar.py`, `events.py`). Read `.raw` files with
-`cvlab.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
+Readers are in `cvlab/sensors/` (`lidar.py`, `events.py`). Read `.raw` files with
+`cvlab.sensors.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
 which breaks the `.sync.csv` mapping when a camera was opened before the recording started.
 
+The event rate is capped in hardware at `EVENT_RECORD_MAX_RATE` (20 Mev/s per camera): uncapped, a
+flickering lab reached ~38 Mev/s and the events reached the host up to 5 s late.
+**Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
+camera can produce more than USB2 can carry. Hot pixels are masked in hardware
+(`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `python -m cvlab.tools.find_hot_pixels <file.raw>`).
+
+Before recording the event cameras, the app power-cycles them with `system/reset_event_cameras.sh`
+through `sudo -n`: it needs a sudoers rule such as
+```
+ubm ALL=(ALL) NOPASSWD: /home/ubm/CVLab_Sensors/system/reset_event_cameras.sh
+```
+
 ## Replay
-`Calibration/calibrate.py` → **Replay**: any session of `CVLab_live_imgs/` (or not yet saved, in
-`get_data/data/`) along a timeline (play / pause, ×0.25–×4, frame steps, go to a time; Space and ←/→).
+Web app → **Replay**: any session of `data/sessions/` (or not yet saved, in `data/staging/`) along a
+timeline (play / pause, ×0.25–×4, frame steps, go to a time; Space and ←/→).
 Each sensor alone at its recorded resolution, or all of them on RGB left with the installed calibrations,
 one checkbox and alpha per sensor: lidar points land exactly (needs RGB ↔ Livox, and Livox ↔ Hesai for
 the Hesai). The other cameras (RGB right, events) are warped through the lidar depth of each RGB-left pixel
 (Warp = Lidar depth: the lidar points of the window, densified) and through a plane at the chosen distance
 where the lidars see nothing (above / below their field of view, screens and glass that return no points);
 Warp = Plane puts everything at that distance. Without lidar depth, objects off the plane are shifted by
-their parallax (the event camera is ~4 cm from RGB left: ~70 px for something at 0.75 m with the plane at 5 m). Event recordings are
-rendered once into frames ("Prepare events", `<session>/replay_cache/`, about the recording's duration).
-`/replay?session=<name>&t=<s>&view=<sensor>` opens a moment directly.
-
-
-**Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
-camera can produce more than USB2 can carry. Hot pixels are masked in hardware
-(`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `get_data/find_hot_pixels.py`).
+their parallax (the event camera is ~4 cm from RGB left: ~70 px for something at 0.75 m with the plane at 5 m).
+Event recordings are rendered once into frames ("Prepare events", `<session>/replay_cache/`, about the
+recording's duration). `/replay?session=<name>&t=<s>&view=<sensor>` opens a moment directly.
+Sessions marked "(not saved)" are still in `data/staging/` (recorded before the server restarted, so the
+Record page no longer knows them): the Replay page can **Save** them to `data/sessions/` or **Discard** them.
 
 ## Calibration (RGB <-> event, RGB <-> Livox, Livox <-> Hesai)
-Stop the recordings (a sensor can be opened by one program only: the capture pages refuse while the
-Record page records), then
-`venv_3_12/bin/python Calibration/calibrate.py` and open http://<NUC_IP>:5001. The home page has four tools;
-each capture page opens the sensors it needs and releases the others.
+Stop the recordings first: a sensor can be opened by one program only, and the capture pages refuse
+while the Record page records. Each capture page opens the sensors it needs and releases the others.
 
 1. **Get RGB-event calibration data**: the 4 cameras live; **Capture** (or Space, or automatic capture)
-   looks for the chessboard (29 mm squares) in all four and saves the board to
-   `Calibration/rgb_event/processed_data/<date>/` when all four see it and it did not move. Each view shows
-   the boards saved so far, the areas still uncovered (red cells) and how old its image is. The event
-   cameras only see changes: use the **Blinking pattern** (on a screen, frequency on the page) or move the
-   board. The session selector adds boards to an existing folder. The event rate is capped in hardware at
-   `EVENT_CALIBRATION_MAX_RATE` (20 Mev/s, `cvlab/config.py`) so the tool keeps up with flickering scenes.
-2. **Calibrate RGB <-> event**: intrinsics of the 4 cameras, both stereo pairs and RGB-left <-> event-left
-   (`Calibration/rgb_event/solve.py`), installed as `CVLab_live_imgs/rgb_event_calibration.npz`.
+   looks for the chessboard (29 mm squares by default, set per session on the page) in all four and saves
+   the board to `data/calibration/rgb_event/captures/<date>/` when all four see it and it did not move.
+   Each view shows the boards saved so far, the areas still uncovered (red cells) and how old its image is.
+   The event cameras only see changes: use the **Blinking pattern** (on a screen, frequency on the page) or
+   move the board. The session selector adds boards to an existing folder. The event rate is capped in
+   hardware at `EVENT_CALIBRATION_MAX_RATE` (20 Mev/s) so the tool keeps up with flickering scenes.
+2. **Calibrate RGB <-> event**: intrinsics of the 4 cameras, both stereo pairs and RGB-left <-> event-left,
+   installed as `data/calibration/rgb_event_calibration.npz`.
 3. **Get RGB-Livox calibration data**: RGB-left and the Livox reflectivity image live. The HAP pattern
    needs seconds to cover the board: each capture collects the points of `Hold` seconds (8 by default,
    `LIVOX_CAPTURE_S`) while the board stays still (checked on RGB-left), and saves the board to
-   `Calibration/rgb_livox/processed_data/<date>/` when both see it.
-4. **Calibrate RGB <-> Livox**: extrinsics only (`Calibration/rgb_livox/solve.py`), with the RGB-left
-   intrinsics of the installed RGB-event calibration (do step 2 first) and the Livox as a virtual camera
-   (`LIVOX_IMAGE_SIZE`, `LIVOX_FOCAL_PX`); checks the Livox points on the board against the board plane
-   seen by RGB-left. Installed as `CVLab_live_imgs/rgb_livox_calibration.npz` (`rgb_from_livox`: native
-   Livox point -> RGB-left camera, mm).
-
+   `data/calibration/rgb_livox/captures/<date>/` when both see it.
+4. **Calibrate RGB <-> Livox**: extrinsics only, with the RGB-left intrinsics of the installed RGB-event
+   calibration (do step 2 first) and the Livox as a virtual camera (`LIVOX_IMAGE_SIZE`, `LIVOX_FOCAL_PX`);
+   checks the Livox points on the board against the board plane seen by RGB-left. Installed as
+   `data/calibration/rgb_livox_calibration.npz` (`rgb_from_livox`: native Livox point -> RGB-left camera, mm).
 5. **Get Livox-Hesai calibration data**: no target. Stop the car in a place with structure in front of it
    (walls, kerbs, steps, a slope, parked cars at 3–15 m), keep the rig and the scene still and record a
    stop (15 s by default). Each stop is checked at once: the rig must not have moved during it, and the
    page shows how well the scene constrains each direction (surfaces facing only one way leave the
    translation along them free). Record 3–6 stops in different places and headings.
-6. **Calibrate Livox <-> Hesai**: registers the Hesai points on the Livox surfaces (point-to-plane ICP,
-   `Calibration/livox_hesai/registration.py`) over all stops at once, from an initial guess of the Hesai
-   position in the Livox frame (a ruler is enough: it converges from ±30 cm / ±10°; default
-   `LIVOX_HESAI_INITIAL_T_MM`). Every stop is also solved alone: their spread is the uncertainty.
-   Installed as `CVLab_live_imgs/livox_hesai_calibration.npz` (`livox_from_hesai`: native Hesai point ->
-   native Livox frame, mm).
+6. **Calibrate Livox <-> Hesai**: registers the Hesai points on the Livox surfaces (point-to-plane ICP)
+   over all stops at once, from an initial guess of the Hesai position in the Livox frame (a ruler is
+   enough: it converges from ±30 cm / ±10°; default `LIVOX_HESAI_INITIAL_T_MM`). Every stop is also solved
+   alone: their spread is the uncertainty. Installed as `data/calibration/livox_hesai_calibration.npz`
+   (`livox_from_hesai`: native Hesai point -> native Livox frame, mm).
 
-The solvers also run from the terminal: `Calibration/rgb_event/solve.py [folder] [--no-install]`,
-`Calibration/rgb_livox/solve.py [folder] [--no-install]`,
-`Calibration/livox_hesai/solve.py [folder] [--initial X Y Z] [--no-install]`.
-
-**RGB-event from a recording**: record with `get_data/get_data.py --only rgb event`, then
-`Calibration/rgb_event/process_session.py [session]` and calibrate that folder (step 2).
-Check: `CVLab_live_imgs/rectification.py {rgb,event}`, `CVLab_live_imgs/all_images_rect.py`.
+The solvers also run from the terminal:
+`python -m cvlab.calibration.rgb_event.solve [folder] [--no-install]`,
+`python -m cvlab.calibration.rgb_livox.solve [folder] [--no-install]`,
+`python -m cvlab.calibration.livox_hesai.solve [folder] [--initial X Y Z] [--no-install]`.
 
 RGB images are center-cropped to 16:9 and resized to 1280x720 before calibration
-(`cvlab.calibration.to_calibration_size`): do the same before using the intrinsics, or use
-`cvlab.calibration.full_frame_intrinsics` for the full frame.
+(`cvlab.calibration.common.to_calibration_size`): do the same before using the intrinsics, or use
+`cvlab.calibration.common.full_frame_intrinsics` for the full frame.
 
-## Hesai Lidars
-<a name="hesai_lidar"></a>
-## Livox Lidars
-<a name="livox_lidar"></a>
-### Build
-#### SDK Installation
-From `/home/cvlab/CVLab_Sensors`
+## Time synchronization (PTP)
+Every Ethernet sensor sits on its own USB network adapter (r8152), which has no
+hardware timestamping. A single `ptp4l` with software timestamping serves the
+NUC system clock to the Basler cameras and the Livox (accuracy: tens of microseconds),
+installed as a service (starts at boot):
+```
+sudo cp system/ptp4l-cvlab.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now ptp4l-cvlab
+journalctl -u ptp4l-cvlab -f
+```
+- **Basler**: the RGB recorder refuses to record until both cameras are PTP `Slave` + `Locked`.
+  Frames are triggered by the PTP clock (`RGB_PTP_TRIGGER`), so left and right expose at the same
+  instant (measured: < 0.2 ms apart).
+- **Livox HAP**: needs PTP over L2 (set in `system/ptp4l.conf`); each H5 file stores `time_source`
+  (`livox_ptp` when synced).
+- Check everything with `python -m cvlab.tools.check_ptp`.
+- **Hesai XT32**: keep its clock source on GPS (free running). It cannot follow a two-step PTP
+  master (software timestamping is always two-step): its clock jumps by seconds. Its H5 files
+  store `sync` pairs, and `cvlab.sensors.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
+- **Event cameras** (USB) are not on PTP: their clock is mapped to the host clock through the
+  `*.sync.csv` file written next to each recording. For exact RGB-event sync, wire a Basler output
+  line (LineSource = ExposureActive) into the EVK4 trigger input and set `EVENT_TRIGGER_IN = True`
+  in `cvlab/config.py`.
+
+## SDKs
+### Lidar recorders
+`lidar_recorders/compile.sh` links the sources into the SDK trees (`~/SDKs/Livox-SDK2`,
+`~/SDKs/HesaiLidar_SDK_2.0`) and builds `save_point_cloud_livox` and `save_point_cloud_hesai`;
+`lidar_recorders/save_point_cloud_*` are symlinks to the built programs.
+
+Livox SDK2 installation:
 ```
 git clone https://github.com/Livox-SDK/Livox-SDK2.git
-```
-```
-cd ./Livox-SDK2/
-```
-```
-mkdir build
-```
-```
-cd build
-```
-```
-cmake .. && make -j
-```
-```
-sudo make install
+cd Livox-SDK2 && mkdir build && cd build
+cmake .. && make -j && sudo make install
 ```
 Documentation about lidar packets [here](https://github.com/Livox-SDK/Livox-SDK2/wiki/Livox-SDK-Communication-Protocol-HAP(English)#2-point-cloud--imu-data-protocol).
-## RealSensor
-<a name="realsense"></a>
-### Build
-#### SDK Installation
-```
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key F6E65AC044F831AC80A06380C8B3A55A6F3EFCDE || sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-key F6E65AC044F831AC80A06380C8B3A55A6F3EFCDE
-sudo add-apt-repository "deb https://librealsense.intel.com/Debian/apt-repo $(lsb_release -cs) main" -u
-sudo apt-get install librealsense2-utils
-sudo apt-get install librealsense2-dev
-```
-You can try the correct installation with: `realsense-viewer`
-## Event Camera
-<a name="prophesee_event"></a>
-### Programs and Documentation
+
+### Event cameras
 - [SDK 5.0 deb](https://propheseeai.jfrog.io/ui/repos/tree/General/metavision-sdk-5-debian)
 - [Metavision Studio](https://propheseeai.jfrog.io/ui/packages/deb:%2F%2Fmetavision-studio)
 - [Creating a Python Venv](https://docs.prophesee.ai/stable/installation/linux.html#installing-dependencies)
-- I have linked some Python scripts in `/home/ubm/CVLab_Sensors/EventCamerasWorkingArea/samples`
-### Calibration
-```
-metavision_calibration_pipeline
-```
-Blinking chessboard at: `/usr/share/metavision/sdk/calibration/cpp_samples/metavision_calibration_pipeline/metavision_calibration_pattern_chessboard.html`
-## RGB Camera
-<a name="basler"></a>
-Change the IP using:
-```
-/opt/pylon/bin/ipconfigurator
-```
-Change camera settings using:
-```
-/opt/pylon/bin/pylonviewer
-```
+
+### RGB cameras
+Change the IP using `/opt/pylon/bin/ipconfigurator`, inspect the camera settings using
+`/opt/pylon/bin/pylonviewer` (the app sets them itself, see `cvlab/sensors/basler.py`).

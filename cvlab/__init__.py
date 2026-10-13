@@ -1,7 +1,4 @@
-"""Shared code for the CVLab sensor rig (config, recorders, lidar I/O, calibration helpers).
+"""CVLab sensor rig: the web app (python -m cvlab) and everything it uses.
 
-Scripts outside this package add the repo root to sys.path:
-
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from cvlab import config
+Run every entry point as a module from the repo root, e.g. python -m cvlab.calibration.rgb_event.solve
 """

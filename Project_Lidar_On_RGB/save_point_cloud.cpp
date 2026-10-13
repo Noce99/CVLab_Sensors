@@ -1,1 +1,0 @@
-/home/ubm/SDKs/Livox-SDK2/samples/livox_lidar_quick_start/save_point_cloud.cpp

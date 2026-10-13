@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ tool.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <a class="back" href="/">← Tools</a>
+            <h1>{{ tool.title }}</h1>
+            <span class="muted">Boards from <a href="{{ tool.capture_url }}">the capture page</a>, results in <code>results/</code></span>
+        </div>
+        <div class="actions">
+            {% if tool.params %}
+            <div class="params" title="{{ tool.params_note }}">
+                <span class="toggle">{{ tool.params_title }}</span>
+                {% for p in tool.params %}
+                <label class="toggle">{{ p.label }} <input type="number" class="field param" data-name="{{ p.name }}" step="any" value="{{ p.value }}"></label>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <label class="toggle">Folder
+                <select id="folder" class="field"></select>
+            </label>
+            <label class="toggle" id="install-label"><input type="checkbox" id="install" checked> Install as current calibration</label>
+            <button id="run" class="btn-capture">Calibrate</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Progress</h2>
+                <span id="job-message" class="message"></span>
+            </div>
+            <div class="progress-body">
+                <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+                <div class="progress-label"><span id="progress-label" class="muted">Pick a folder and press Calibrate</span><span id="progress-pct" class="muted"></span></div>
+                <details>
+                    <summary class="muted">Log</summary>
+                    <pre id="log"></pre>
+                </details>
+            </div>
+        </section>
+
+        <section class="panel" id="results" hidden>
+            <div class="panel-header">
+                <h2>Results</h2>
+                <span class="muted"><code id="results-folder"></code></span>
+            </div>
+            <div class="stats result-stats">
+                <div class="stat"><span class="stat-value" id="n-found">-</span><span class="stat-label" id="label-found">boards found</span></div>
+                <div class="stat" id="stat-unique"><span class="stat-value" id="n-unique">-</span><span class="stat-label">unique</span></div>
+                <div class="stat"><span class="stat-value" id="n-used">-</span><span class="stat-label" id="label-used">used</span></div>
+                <div class="stat" id="stat-square" hidden><span class="stat-value" id="square-size">-</span><span class="stat-label">square mm</span></div>
+            </div>
+            <p class="message warn table-title" id="warnings" hidden></p>
+
+            <div id="intrinsics-section" hidden>
+                <h3 class="table-title">Intrinsics</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Camera</th><th>RMS px</th><th>Median view err</th><th>Max view err</th><th>fx</th><th>fy</th><th>cx</th><th>cy</th><th>Distortion (k1 k2 p1 p2 k3)</th></tr></thead>
+                        <tbody id="intrinsics"></tbody>
+                    </table>
+                </div>
+            </div>
+            <p class="muted table-title" id="intrinsics-note" hidden></p>
+
+            <h3 class="table-title">Extrinsics</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Pair</th><th id="rms-header">RMS px</th><th>T mm (x, y, z)</th><th>|T| mm</th><th>Rotation deg</th></tr></thead>
+                    <tbody id="extrinsics"></tbody>
+                </table>
+            </div>
+            <p class="muted table-title" id="extrinsics-note" hidden></p>
+            <div id="tables"></div>
+
+            <div id="plane-section" hidden>
+                <h3 class="table-title">Board plane check <span class="muted">(Livox points on the board vs the board plane seen by RGB left: independent of the corners)</span></h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Board</th><th>Corner RMS px</th><th>Points on the board</th><th>Offset mm</th><th>Spread mm</th></tr></thead>
+                        <tbody id="plane"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <h3 class="table-title"><span id="images-title">Rectification checks</span> <span class="muted" id="images-note">(first board; corresponding points on the same green line: rows for a side-by-side pair, columns for a stacked one)</span></h3>
+            <div class="result-images" id="images"></div>
+
+            <div id="blend-section" hidden>
+                <div class="panel-header blend-header">
+                    <h3 id="blend-title"></h3>
+                    <span class="muted" id="blend-note"></span>
+                </div>
+                <div class="blend">
+                    <div class="blend-stage">
+                        <img id="blend-top" alt="">
+                        <img id="blend-bottom" alt="">
+                    </div>
+                    <div class="blend-slider">
+                        <span id="blend-label-0"></span>
+                        <input type="range" id="blend-slider" min="0" max="100" value="50">
+                        <span id="blend-label-1"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-header blend-header">
+                <h3>Sensor positions</h3>
+                <span class="muted">Optical centres in mm, origin at <span id="rig-origin">RGB left</span>; arrows: viewing direction</span>
+            </div>
+            <div class="rig-views" id="rig-views"></div>
+            <div class="table-wrap rig-table">
+                <table>
+                    <thead><tr><th>From</th><th>To</th><th>Distance mm</th><th>Δx right</th><th>Δy up</th><th>Δz forward</th></tr></thead>
+                    <tbody id="rig-distances"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>const TOOL = {{ tool | tojson }};</script>
+    <script src="{{ url_for('static', filename='rig.js') }}"></script>
+    <script src="{{ url_for('static', filename='solve.js') }}"></script>
+</body>
+</html>

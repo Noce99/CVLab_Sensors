@@ -1,7 +1,9 @@
-pypylon
-opencv-python
+# pip install -r requirements.txt (Python 3.12 venv: venv_3_12/)
+# The Prophesee Metavision SDK (metavision_core, metavision_hal) comes from its Debian packages, see README.
+flask
 h5py
-pygame
-tqdm
-scipy
+numpy
 open3d
+opencv-python
+pypylon
+scipy
