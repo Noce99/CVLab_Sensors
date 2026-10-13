@@ -29,6 +29,7 @@ from Calibration.rgb_event import capture as rgb_event_capture
 from Calibration.rgb_event import solve as rgb_event_solve
 from Calibration.rgb_livox import capture as rgb_livox_capture
 from Calibration.rgb_livox import solve as rgb_livox_solve
+from Calibration.rig import installed_rig
 from Calibration.sensors import SensorManager
 from cvlab import config
 
@@ -91,7 +92,8 @@ def tool_summary(tool_id):
 @app.route("/")
 def home():
     sensors.use(None)
-    return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS})
+    return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS},
+                           rig=installed_rig())
 
 
 @app.route("/pattern")

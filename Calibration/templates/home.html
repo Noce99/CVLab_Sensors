@@ -28,7 +28,7 @@
                     <span class="tool-name">Get RGB-event calibration data</span>
                     <span class="tool-desc">Live RGB left/right and event left/right. Show the blinking chessboard and capture it in all four cameras.</span>
                     <span class="tool-status {{ 'none' if not e.latest }}">
-                        {% if e.latest %}Latest session {{ e.latest.name }} · {{ e.latest.boards }} boards{% else %}No session yet{% endif %}
+                        {% if e.latest %}Latest session {{ e.latest.name }} · {{ e.latest.boards }} board{{ '' if e.latest.boards == 1 else 's' }}{% else %}No session yet{% endif %}
                     </span>
                 </a>
                 <a class="tool-card" href="/rgb-event/calibrate">
@@ -49,7 +49,7 @@
                     <span class="tool-name">Get RGB-Livox calibration data</span>
                     <span class="tool-desc">Live RGB left and Livox reflectivity. Hold the chessboard still for a few seconds per capture.</span>
                     <span class="tool-status {{ 'none' if not l.latest }}">
-                        {% if l.latest %}Latest session {{ l.latest.name }} · {{ l.latest.boards }} boards{% else %}No session yet{% endif %}
+                        {% if l.latest %}Latest session {{ l.latest.name }} · {{ l.latest.boards }} board{{ '' if l.latest.boards == 1 else 's' }}{% else %}No session yet{% endif %}
                     </span>
                 </a>
                 <a class="tool-card" href="/rgb-livox/calibrate">
@@ -70,7 +70,7 @@
                     <span class="tool-name">Get Livox-Hesai calibration data</span>
                     <span class="tool-desc">No target: stop the car in 3–6 structured places and record both lidars, rig and scene still.</span>
                     <span class="tool-status {{ 'none' if not h.latest }}">
-                        {% if h.latest %}Latest session {{ h.latest.name }} · {{ h.latest.boards }} stops{% else %}No session yet{% endif %}
+                        {% if h.latest %}Latest session {{ h.latest.name }} · {{ h.latest.boards }} stop{{ '' if h.latest.boards == 1 else 's' }}{% else %}No session yet{% endif %}
                     </span>
                 </a>
                 <a class="tool-card" href="/livox-hesai/calibrate">
@@ -83,6 +83,33 @@
                 </a>
             </section>
         </div>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Installed rig</h2>
+                <span class="muted">Sensors placed by the installed calibrations; optical centres in mm, origin at {{ rig.origin or '-' }}; arrows: viewing direction</span>
+            </div>
+            {% for note in rig.notes %}<p class="message warn table-title">⚠ {{ note }}</p>{% endfor %}
+            {% if rig.poses | length > 1 %}
+            <div class="rig-views" id="rig-views"></div>
+            <div class="table-wrap rig-table">
+                <table>
+                    <thead><tr><th>From</th><th>To</th><th>Distance mm</th><th>Δx right</th><th>Δy up</th><th>Δz forward</th></tr></thead>
+                    <tbody id="rig-distances"></tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="muted table-title">No calibration installed yet.</p>
+            {% endif %}
+        </section>
     </main>
+
+    {% if rig.poses | length > 1 %}
+    <script src="{{ url_for('static', filename='rig.js') }}"></script>
+    <script>
+        const RIG = {{ rig | tojson }};
+        document.addEventListener('DOMContentLoaded', () => showRig(RIG.poses, RIG.pairs));
+    </script>
+    {% endif %}
 </body>
 </html>
