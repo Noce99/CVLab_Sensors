@@ -8,9 +8,12 @@
     --warn: #d29922;
     --bad: #f85149;
     --accent: #4c8dff;
+    --lidar: #b07cf0;
+    --lidar2: #3fc1c9;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 
 body {
     background: var(--bg);
@@ -20,6 +23,10 @@ body {
 }
 
 code { font-size: 12px; }
+a { color: var(--accent); }
+.back { font-size: 12px; text-decoration: none; display: inline-block; margin-bottom: 2px; }
+.back:hover { text-decoration: underline; }
+.session-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 6px; }
 .muted { color: var(--muted); font-size: 12px; }
 
 header {
@@ -252,7 +259,7 @@ td.bad { color: var(--bad); }
 /* The RGB image sets the size (the canvas is not 16:9), the event one lies on top */
 .blend-stage { position: relative; background: #000; border-radius: 4px; overflow: hidden; }
 .blend-stage img { display: block; width: 100%; }
-.blend-stage #blend-event { position: absolute; inset: 0; height: 100%; }
+.blend-stage #blend-top { position: absolute; inset: 0; height: 100%; }
 .blend-slider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .blend-slider input { flex: 1; accent-color: var(--accent); }
 
@@ -270,12 +277,55 @@ td.bad { color: var(--bad); }
 .rig-scale { stroke: var(--text); stroke-width: 2; }
 .rig-cam.rgb { fill: var(--accent); }
 .rig-cam.event { fill: var(--warn); }
+.rig-cam.livox { fill: var(--lidar); }
+.rig-cam.hesai { fill: var(--lidar2); }
+.rig-cam.hollow.hesai { stroke: var(--lidar2); }
+.rig-cam.hollow.livox { stroke: var(--lidar); }
 .rig-cam.hollow { fill: var(--bg); stroke-width: 2; }
 .rig-cam.hollow.rgb { stroke: var(--accent); }
 .rig-cam.hollow.event { stroke: var(--warn); }
 .rig-axis { stroke-width: 2; fill: none; }
 .rig-axis.rgb { stroke: var(--accent); }
 .rig-axis.event { stroke: var(--warn); }
+.rig-axis.livox { stroke: var(--lidar); }
+.rig-axis.hesai { stroke: var(--lidar2); }
 .rig-arrow.rgb { fill: var(--accent); }
 .rig-arrow.event { fill: var(--warn); }
+.rig-arrow.livox { fill: var(--lidar); }
+.rig-arrow.hesai { fill: var(--lidar2); }
 .rig-table { padding-bottom: 12px; }
+
+/* Home page */
+.home-intro { color: var(--muted); max-width: 70ch; line-height: 1.5; }
+.tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) {
+    .tools { grid-template-columns: 1fr; }
+}
+.tool-group { display: flex; flex-direction: column; gap: 10px; }
+.tool-group h2 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.tool-group h2 .dot { width: 10px; height: 10px; }
+.tool-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+}
+.tool-card:hover { border-color: var(--accent); }
+.tool-card .tool-step { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.tool-card .tool-name { font-size: 16px; font-weight: 600; }
+.tool-card .tool-desc { color: var(--muted); line-height: 1.45; }
+.tool-card .tool-status { font-size: 12px; font-variant-numeric: tabular-nums; }
+.tool-card .tool-status.none { color: var(--warn); }
+.tool-card .tool-status.ok { color: var(--ok); }
+
+/* Solve parameters (initial guess) and stop tables */
+.params { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.params input { width: 80px; margin-left: 4px; }
+tr.latest-row td { background: rgba(76, 141, 255, 0.08); }
+.row-delete { background: none; border: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 16px; }
+.row-delete:hover { color: var(--bad); }

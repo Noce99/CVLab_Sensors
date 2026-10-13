@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ tool.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <a class="back" href="/">← Tools</a>
+            <h1>{{ tool.title }}</h1>
+            <span class="muted">Saving to <code id="folder">-</code></span>
+            <div class="session-controls">
+                <label class="toggle">Session
+                    <select id="session" class="field"><option value="">New session</option></select>
+                </label>
+            </div>
+        </div>
+        <div class="stats">
+            <div class="stat"><span class="stat-value" id="n-stops">0</span><span class="stat-label">stops</span></div>
+        </div>
+        <div class="actions">
+            <div class="pattern-launch">
+                <label class="toggle" title="Seconds of points per stop: keep the rig and the scene still meanwhile">
+                    Record <input type="number" id="capture-seconds" min="3" max="20" step="1" value="{{ tool.capture_s }}"> s</label>
+            </div>
+            <button id="capture" class="btn-capture">Record stop <kbd>Space</kbd></button>
+        </div>
+    </header>
+
+    <main>
+        <p class="home-intro">
+            Stop the car in a place with structure in front of it (walls, kerbs, steps, a slope, parked cars at 3–15 m),
+            keep it still, record. Repeat in 3–6 different places and headings, then
+            <a href="{{ tool.solve_url }}">calibrate</a>. The check below tells what each stop constrains:
+            a direction weaker than {{ weak_strength }} needs another stop with surfaces facing that way.
+        </p>
+
+        <section class="cameras" id="cameras"></section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Last stop</h2>
+                <span id="capture-message" class="message"></span>
+            </div>
+            <div class="capture-strip" id="capture-strip"></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Recorded stops</h2>
+                <span class="muted">× to delete</span>
+            </div>
+            <div class="table-wrap rig-table">
+                <table>
+                    <thead><tr><th>Stop</th><th>Seconds</th><th>Livox / Hesai points</th><th>Overlap</th><th>RMS mm</th><th>Hesai at (mm, this stop alone)</th><th>Weakest direction</th><th></th></tr></thead>
+                    <tbody id="stops"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>const TOOL = {{ tool | tojson }}; const WEAK_STRENGTH = {{ weak_strength }};</script>
+    <script src="{{ url_for('static', filename='scene_capture.js') }}"></script>
+</body>
+</html>

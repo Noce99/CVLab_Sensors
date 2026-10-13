@@ -1,7 +1,7 @@
 """Find the chessboard in time-aligned RGB and event frames of a recording session.
 
 Record the chessboard with:   python get_data/get_data.py --only rgb event
-Then:                          python process_calibration_data.py [session_folder]
+Then:                          python Calibration/rgb_event/process_session.py [session_folder]
 
 For every RGB-left frame (one every --step), the closest RGB-right frame and the
 event frames ending at the same host time are rendered; when all four show the
@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from cvlab import config, events
 from cvlab.calibration import find_corners_variants, find_event_corners, to_calibration_size
 

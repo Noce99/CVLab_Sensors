@@ -67,23 +67,53 @@ Readers for all of these are in `cvlab/` (`lidar.py`, `events.py`).
 camera can produce more than USB2 can carry. Hot pixels are masked in hardware
 (`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `get_data/find_hot_pixels.py`).
 
-## RGB-Event calibration
-**Live (web tool)**: stop the recorders, then `venv_3_12/bin/python RGB_Event_Calibration/calibration_server.py`
-and open http://<NUC_IP>:5001. It shows the 4 cameras live; **Capture** (or Space) looks for the
-chessboard in all four and saves the board to `RGB_Event_Calibration/processed_data/<date>/` when
-all four see it. Each view shows the boards saved so far and which areas are still uncovered
-(red cells), and how old its image is. The event cameras only see changes: use a blinking chessboard (on a screen) or move the board. Then run step 3.
-`--resume` adds boards to the latest folder. The event rate is capped in hardware at
-`EVENT_CALIBRATION_MAX_RATE` (20 Mev/s, `cvlab/config.py`) so the tool keeps up with flickering scenes.
+## Calibration (RGB <-> event, RGB <-> Livox, Livox <-> Hesai)
+Stop the recorders (a sensor can be opened by one program only), then
+`venv_3_12/bin/python Calibration/calibrate.py` and open http://<NUC_IP>:5001. The home page has four tools;
+each capture page opens the sensors it needs and releases the others.
 
-**From a recording**:
-1. Record the chessboard (29 mm squares), moving it around: `get_data/get_data.py --only rgb event`
-2. `RGB_Event_Calibration/process_calibration_data.py [session]`
-3. `RGB_Event_Calibration/calibrate.py` (installs `CVLab_live_imgs/rgb_event_calibration.npz`)
-4. Check: `CVLab_live_imgs/rectification.py {rgb,event}`, `CVLab_live_imgs/all_images_rect.py`
+1. **Get RGB-event calibration data**: the 4 cameras live; **Capture** (or Space, or automatic capture)
+   looks for the chessboard (29 mm squares) in all four and saves the board to
+   `Calibration/rgb_event/processed_data/<date>/` when all four see it and it did not move. Each view shows
+   the boards saved so far, the areas still uncovered (red cells) and how old its image is. The event
+   cameras only see changes: use the **Blinking pattern** (on a screen, frequency on the page) or move the
+   board. The session selector adds boards to an existing folder. The event rate is capped in hardware at
+   `EVENT_CALIBRATION_MAX_RATE` (20 Mev/s, `cvlab/config.py`) so the tool keeps up with flickering scenes.
+2. **Calibrate RGB <-> event**: intrinsics of the 4 cameras, both stereo pairs and RGB-left <-> event-left
+   (`Calibration/rgb_event/solve.py`), installed as `CVLab_live_imgs/rgb_event_calibration.npz`.
+3. **Get RGB-Livox calibration data**: RGB-left and the Livox reflectivity image live. The HAP pattern
+   needs seconds to cover the board: each capture collects the points of `Hold` seconds (8 by default,
+   `LIVOX_CAPTURE_S`) while the board stays still (checked on RGB-left), and saves the board to
+   `Calibration/rgb_livox/processed_data/<date>/` when both see it.
+4. **Calibrate RGB <-> Livox**: extrinsics only (`Calibration/rgb_livox/solve.py`), with the RGB-left
+   intrinsics of the installed RGB-event calibration (do step 2 first) and the Livox as a virtual camera
+   (`LIVOX_IMAGE_SIZE`, `LIVOX_FOCAL_PX`); checks the Livox points on the board against the board plane
+   seen by RGB-left. Installed as `CVLab_live_imgs/rgb_livox_calibration.npz` (`rgb_from_livox`: native
+   Livox point -> RGB-left camera, mm).
+
+5. **Get Livox-Hesai calibration data**: no target. Stop the car in a place with structure in front of it
+   (walls, kerbs, steps, a slope, parked cars at 3–15 m), keep the rig and the scene still and record a
+   stop (15 s by default). Each stop is checked at once: the rig must not have moved during it, and the
+   page shows how well the scene constrains each direction (surfaces facing only one way leave the
+   translation along them free). Record 3–6 stops in different places and headings.
+6. **Calibrate Livox <-> Hesai**: registers the Hesai points on the Livox surfaces (point-to-plane ICP,
+   `Calibration/livox_hesai/registration.py`) over all stops at once, from an initial guess of the Hesai
+   position in the Livox frame (a ruler is enough: it converges from ±30 cm / ±10°; default
+   `LIVOX_HESAI_INITIAL_T_MM`). Every stop is also solved alone: their spread is the uncertainty.
+   Installed as `CVLab_live_imgs/livox_hesai_calibration.npz` (`livox_from_hesai`: native Hesai point ->
+   native Livox frame, mm).
+
+The solvers also run from the terminal: `Calibration/rgb_event/solve.py [folder] [--no-install]`,
+`Calibration/rgb_livox/solve.py [folder] [--no-install]`,
+`Calibration/livox_hesai/solve.py [folder] [--initial X Y Z] [--no-install]`.
+
+**RGB-event from a recording**: record with `get_data/get_data.py --only rgb event`, then
+`Calibration/rgb_event/process_session.py [session]` and calibrate that folder (step 2).
+Check: `CVLab_live_imgs/rectification.py {rgb,event}`, `CVLab_live_imgs/all_images_rect.py`.
 
 RGB images are center-cropped to 16:9 and resized to 1280x720 before calibration
-(`cvlab.calibration.to_calibration_size`): do the same before using the intrinsics.
+(`cvlab.calibration.to_calibration_size`): do the same before using the intrinsics, or use
+`cvlab.calibration.full_frame_intrinsics` for the full frame.
 
 ## Hesai Lidars
 <a name="hesai_lidar"></a>

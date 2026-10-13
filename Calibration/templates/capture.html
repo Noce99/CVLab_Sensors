@@ -3,14 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RGB-Event Calibration</title>
+    <title>{{ tool.title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
 </head>
 <body>
     <header>
         <div class="title">
-            <h1>RGB-Event calibration</h1>
+            <a class="back" href="/">← Tools</a>
+            <h1>{{ tool.title }}</h1>
             <span class="muted">Saving to <code id="folder">-</code></span>
+            <div class="session-controls">
+                <label class="toggle">Session
+                    <select id="session" class="field"><option value="">New session</option></select>
+                </label>
+                {% if tool.save_failed %}
+                <label class="toggle" title="Save the images (and raw events) of captures where a camera misses the board, to tune the chessboard search">
+                    <input type="checkbox" id="save-failed"> Save failed captures</label>
+                {% endif %}
+            </div>
         </div>
         <div class="stats">
             <div class="stat"><span class="stat-value" id="n-boards">0</span><span class="stat-label">boards</span></div>
@@ -20,10 +30,18 @@
         </div>
         <div class="actions">
             <label class="toggle"><input type="checkbox" id="show-coverage" checked> Coverage overlay</label>
+            {% if tool.pattern %}
             <div class="pattern-launch">
                 <label class="toggle">Blink <input type="number" id="blink-hz" min="0.5" max="60" step="0.5" value="10"> Hz</label>
                 <button id="open-pattern" class="btn-secondary">Blinking pattern</button>
             </div>
+            {% endif %}
+            {% if tool.timed_capture %}
+            <div class="pattern-launch">
+                <label class="toggle" title="Seconds of Livox points per board: hold the board still meanwhile">
+                    Hold <input type="number" id="capture-seconds" min="1" max="30" step="1" value="{{ tool.capture_s }}"> s</label>
+            </div>
+            {% endif %}
             <div class="pattern-launch">
                 <label class="toggle">Every <input type="number" id="auto-interval" min="0.2" step="0.5" value="1"> s</label>
                 <button id="auto-capture" class="btn-secondary">Automatic capture</button>
@@ -46,12 +64,16 @@
         <section class="panel">
             <div class="panel-header">
                 <h2>Saved boards</h2>
-                <span class="muted">Click to view, × to delete. calibrate.py needs at least 10.</span>
+                <span class="muted">Click to view, × to delete. Then <a href="{{ tool.solve_url }}">calibrate</a>.</span>
             </div>
             <div class="samples" id="samples"></div>
         </section>
     </main>
 
-    <script src="{{ url_for('static', filename='calibration.js') }}"></script>
+    <script>
+        const TOOL = {{ tool | tojson }};
+        const PATTERN_SIZE = {{ pattern_size | list | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='capture.js') }}"></script>
 </body>
 </html>

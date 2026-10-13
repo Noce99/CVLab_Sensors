@@ -1,12 +1,13 @@
-// Live view of the 4 cameras, chessboard capture and coverage of the saved boards.
+// Live view of the cameras of a tool, chessboard capture and coverage of the saved boards.
+// TOOL (set by capture.html): cameras, labels, preview_delay_ms, aspect, api, timed_capture...
 
-const CAMERAS = ['rgb_left', 'rgb_right', 'event_left', 'event_right'];
-const LABELS = {rgb_left: 'RGB left', rgb_right: 'RGB right', event_left: 'Event left', event_right: 'Event right'};
+const CAMERAS = TOOL.cameras;
+const LABELS = TOOL.labels;
+const API = TOOL.api;
 const GRID = 3;   // coverage grid: GRID x GRID cells per image
 const CELL_NAMES = [['top-left', 'top', 'top-right'], ['left', 'center', 'right'], ['bottom-left', 'bottom', 'bottom-right']];
-// Pause between two previews of a camera. An event preview costs ~100 ms of
-// the camera process, which also has to keep up with up to 60 Mev/s.
-const PREVIEW_DELAY_MS = {rgb_left: 150, rgb_right: 150, event_left: 400, event_right: 400};
+// Pause between two previews of a camera (an event preview costs ~100 ms of the camera process)
+const PREVIEW_DELAY_MS = TOOL.preview_delay_ms;
 // Image age shown amber / red above these
 const SLOW_MS = 300;
 const STALE_MS = 1000;
@@ -14,7 +15,7 @@ const STALE_MS = 1000;
 const NEAR_AREA = 0.25;
 const FAR_AREA = 0.08;
 
-let patternSize = [9, 6];
+let patternSize = PATTERN_SIZE;
 let boards = [];          // [{name, corners: {cam: [[x, y] normalized]}}]
 let lastCapture = null;   // corners of the last capture, highlighted on the overlay
 
@@ -24,11 +25,14 @@ document.addEventListener('DOMContentLoaded', () => {
     updateStatus();
     setInterval(updateStatus, 2000);
     loadSamples();
+    loadSessions();
 
     document.getElementById('capture').addEventListener('click', manualCapture);
     document.getElementById('auto-capture').addEventListener('click', toggleAutoCapture);
     document.getElementById('show-coverage').addEventListener('change', drawAllOverlays);
-    document.getElementById('open-pattern').addEventListener('click', openPattern);
+    document.getElementById('session').addEventListener('change', changeSession);
+    document.getElementById('open-pattern')?.addEventListener('click', openPattern);
+    document.getElementById('save-failed')?.addEventListener('change', e => setSession({save_failed: e.target.checked}));
     document.addEventListener('keydown', e => {
         if (e.code === 'Space' && !e.repeat && e.target.tagName !== 'INPUT') {
             e.preventDefault();
@@ -44,8 +48,34 @@ function openPattern() {
     window.open(`/pattern?hz=${hz}`, 'blinking-pattern', 'popup,width=1280,height=800');
 }
 
+// ============================================================================
+// SESSION
+// ============================================================================
+
+async function loadSessions() {
+    const list = await (await fetch(`${API}/sessions`)).json();
+    const select = document.getElementById('session');
+    select.length = 1;   // keep "New session"
+    for (const s of list) select.add(new Option(`${s.name} — ${s.boards} boards`, s.name));
+}
+
+async function changeSession(e) {
+    await setSession({name: e.target.value || null});
+}
+
+async function setSession(body) {
+    const response = await fetch(`${API}/session`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!response.ok) setMessage((await response.json()).error, 'bad');
+    lastCapture = null;
+    document.getElementById('capture-strip').innerHTML = '';
+    await Promise.all([updateStatus(), loadSamples()]);
+}
+
 function buildCameraTiles() {
     const container = document.getElementById('cameras');
+    document.getElementById('capture-strip').style.gridTemplateColumns = `repeat(${CAMERAS.length}, minmax(0, 1fr))`;
     for (const cam of CAMERAS) {
         container.insertAdjacentHTML('beforeend', `
             <div class="camera">
@@ -56,7 +86,7 @@ function buildCameraTiles() {
                     <span class="muted" id="rate-${cam}">-</span>
                 </div>
                 <div class="camera-error" id="error-${cam}"></div>
-                <div class="stage">
+                <div class="stage" style="aspect-ratio: ${TOOL.aspect[cam][0]} / ${TOOL.aspect[cam][1]}">
                     <div class="placeholder" id="placeholder-${cam}">Waiting for frames…</div>
                     <img id="live-${cam}" alt="">
                     <canvas id="overlay-${cam}"></canvas>
@@ -78,7 +108,7 @@ async function previewLoop(cam) {
     const placeholder = document.getElementById(`placeholder-${cam}`);
     while (true) {
         try {
-            const response = await fetch(`/api/preview/${cam}`, {cache: 'no-store'});
+            const response = await fetch(`${API}/preview/${cam}`, {cache: 'no-store'});
             if (!response.ok) throw new Error((await response.json()).error);
             showAge(cam, Number(response.headers.get('X-Frame-Age-Ms')));
             const url = URL.createObjectURL(await response.blob());
@@ -108,9 +138,13 @@ function formatAge(ageMs) {
 
 async function updateStatus() {
     try {
-        const status = await (await fetch('/api/status')).json();
+        const status = await (await fetch(`${API}/status`)).json();
         document.getElementById('folder').textContent = status.folder;
         patternSize = status.pattern_size;
+        const select = document.getElementById('session');
+        select.value = [...select.options].some(o => o.value === status.session) ? status.session : '';
+        const saveFailed = document.getElementById('save-failed');
+        if (saveFailed) saveFailed.checked = status.save_failed;
         for (const cam of CAMERAS) {
             const s = status.sensors[cam];
             document.getElementById(`rate-${cam}`).textContent = `${s.rate} ${s.unit}`;
@@ -140,20 +174,40 @@ async function capture() {
     if (capturing) return;
     capturing = true;
     updateCaptureButtons();
-    if (!autoCapture) setMessage('Capturing…', '');
+    const seconds = TOOL.timed_capture ? parseFloat(document.getElementById('capture-seconds').value) || TOOL.capture_s : 0;
+    const countdown = seconds ? startCountdown(seconds) : null;
+    if (!seconds && !autoCapture) setMessage('Capturing…', '');
     try {
-        const response = await fetch('/api/capture', {method: 'POST'});
+        const response = await fetch(`${API}/capture`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({seconds}),
+        });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
         showCapture(result);
-        if (result.saved) await loadSamples(result.saved);
+        if (result.saved) {
+            await loadSamples(result.saved);
+            await loadSessions();   // the first board creates the session folder
+            updateStatus();
+        }
     } catch (error) {
         setMessage(`Capture failed: ${error.message}`, 'bad');
     } finally {
+        clearInterval(countdown);
         capturing = false;
         updateCaptureButtons();
         scheduleAutoCapture();
     }
+}
+
+// Timed capture: the board must stay still while the points are collected
+function startCountdown(seconds) {
+    const end = Date.now() + seconds * 1000;
+    const tick = () => {
+        const left = Math.ceil((end - Date.now()) / 1000);
+        setMessage(left > 0 ? `Hold the board still… ${left} s` : 'Searching the chessboard…', '');
+    };
+    tick();
+    return setInterval(tick, 250);
 }
 
 function manualCapture() {
@@ -200,13 +254,15 @@ function showCapture(result) {
     }
 
     const missed = CAMERAS.filter(cam => !result.cameras[cam].found).map(cam => LABELS[cam]);
+    const all = CAMERAS.length === 2 ? 'Both' : `All ${CAMERAS.length}`;
+    const drift = result.rgb_drift_px != null ? ` (RGB moved ${result.rgb_drift_px} px)` : '';
     if (result.saved) {
         setMessage(`Saved as board ${result.saved}` + (result.warning ? ` — ${result.warning}` : ''),
                    result.warning ? 'warn' : 'ok');
     } else if (result.moving) {
-        setMessage('All 4 saw the board, but it moved during the capture: not saved, hold it still', 'warn');
+        setMessage(`${all} saw the board, but it moved during the capture${drift}: not saved, hold it still`, 'warn');
     } else if (result.duplicate_of) {
-        setMessage(`Detected in all 4, but too close to board ${result.duplicate_of}: not saved, move the board`, 'warn');
+        setMessage(`Detected in ${all.toLowerCase()}, but too close to board ${result.duplicate_of}: not saved, move the board`, 'warn');
     } else {
         setMessage(`Not saved: no chessboard in ${missed.join(', ')}`, 'bad');
     }
@@ -216,7 +272,9 @@ function showCapture(result) {
 }
 
 // Image correction that found the board: [gamma, blur kernel, CLAHE clip(, event rendering)]
-function variantLabel([gamma, blur, clahe, rendering]) {
+function variantLabel(variant) {
+    if (!variant) return '';
+    const [gamma, blur, clahe, rendering] = variant;
     const parts = rendering && rendering !== 'count' ? [rendering] : [];
     if (clahe) parts.push(`CLAHE ${clahe}`);
     if (gamma !== 1) parts.push(`γ ${gamma}`);
@@ -235,7 +293,7 @@ function setMessage(text, kind) {
 // ============================================================================
 
 async function loadSamples(latest) {
-    boards = await (await fetch('/api/samples')).json();
+    boards = await (await fetch(`${API}/samples`)).json();
     const container = document.getElementById('samples');
     container.innerHTML = '';
     for (const board of boards) {
@@ -254,7 +312,7 @@ function viewSample(board) {
     const strip = document.getElementById('capture-strip');
     strip.innerHTML = CAMERAS.map(cam => `
         <div class="shot found">
-            <img src="/api/samples/${board.name}/${cam}.jpg" alt="${LABELS[cam]}">
+            <img src="${API}/samples/${board.name}/${cam}.jpg" alt="${LABELS[cam]}">
             <div class="shot-label"><span>${LABELS[cam]}</span><span class="verdict">board ${board.name}</span></div>
         </div>`).join('');
     setMessage(`Board ${board.name}`, '');
@@ -264,7 +322,7 @@ function viewSample(board) {
 
 async function deleteSample(name) {
     if (!confirm(`Delete board ${name}?`)) return;
-    const response = await fetch(`/api/samples/${name}`, {method: 'DELETE'});
+    const response = await fetch(`${API}/samples/${name}`, {method: 'DELETE'});
     if (!response.ok) {
         setMessage(`Delete failed: ${(await response.json()).error}`, 'bad');
         return;

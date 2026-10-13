@@ -1,6 +1,7 @@
 """Calibrate the RGB stereo pair, the event stereo pair and RGB-left <-> event-left.
 
-Usage: calibrate.py [processed_data/<session>]   (default: latest)
+Usage: python Calibration/rgb_event/solve.py [processed_data/<session>] [--no-install]   (default: latest)
+Also run from the "Calibrate RGB <-> event" page of Calibration/calibrate.py.
 
 1. Intrinsics of each camera on its own (calibrateCamera), dropping outlier boards.
 2. Every stereo pair with CALIB_FIX_INTRINSIC, so R/T are consistent with the saved K/D.
@@ -20,10 +21,11 @@ from datetime import datetime
 import cv2
 import numpy as np
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from Calibration.common import UserError
 from cvlab import config
-from cvlab.calibration import (full_frame_intrinsics, is_vertical_baseline, pattern_points, rectification_check_image, rectify_pair,
-                               stereo_rectify_maps)
+from cvlab.calibration import (full_frame_intrinsics, is_vertical_baseline, pattern_points,
+                               rectification_check_image, rectify_pair, stereo_rectify_maps)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROCESSED_DATA_PATH = os.path.join(HERE, "processed_data")
@@ -142,7 +144,7 @@ def rectified_lookup(x, y, K, D, R_rect, image_size):
 def save_blend(results, sample_folder, sample, intrinsics, R, T, image_size, log, max_side=4096):
     """Rectified rgb_left and event_left on one canvas holding both whole fields of view, the event
     image shifted by the parallax of the board: blend_rgb.png / blend_event.png for the slider of
-    calibrate_server.py. Uses the full RGB frame when saved (calibration_server.py does)."""
+    the solve page. Uses the full RGB frame when saved (rgb_event/capture.py does)."""
     K_rgb, D_rgb = intrinsics["rgb_left"][1:]
     K_ev, D_ev = intrinsics["event_left"][1:]
     R1, R2, *_ = cv2.stereoRectify(K_rgb, D_rgb, K_ev, D_ev, image_size, R, T, alpha=0)
@@ -178,7 +180,10 @@ def save_blend(results, sample_folder, sample, intrinsics, R, T, image_size, log
         out = cv2.remap(image, lookup[0], lookup[1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         cv2.imwrite(os.path.join(results, blend[key]), out)
     log(f"\tRGB <-> event blend: {width}x{height} px canvas")
-    return blend
+    # For the slider of the solve page: images[0] at the left end, images[1] at the right end
+    return {"title": "RGB ↔ event", "images": [blend["event"], blend["rgb"]], "labels": ["Event", "RGB"],
+            "note": "Rectified left cameras, whole field of view of both, event shifted by the board parallax "
+                    "(black: not seen)"}
 
 
 def camera_poses(extrinsics):
@@ -195,15 +200,11 @@ def camera_poses(extrinsics):
             for cam in CAMERAS}
 
 
-class NotEnoughBoards(Exception):
-    pass
-
-
 def calibrate(folder, install=True, log=print, progress=lambda fraction, label: None):
     """Full calibration of a processed_data/<session> folder.
 
     progress(fraction in [0, 1], label) is called before every step. Returns a
-    summary dict (see the end of the function); raises NotEnoughBoards.
+    summary dict (see the end of the function); raises UserError.
     """
     # Steps: load, 4 intrinsics + 4 if outliers are dropped, 3 stereo, 3 rectification checks, save
     total = 16
@@ -223,7 +224,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
     n_unique = len(samples)
     log(f"{n_unique} boards after removing duplicates")
     if n_unique < 10:
-        raise NotEnoughBoards(f"Not enough boards to calibrate ({n_unique}, need at least 10): move the board around more")
+        raise UserError(f"Not enough boards to calibrate ({n_unique}, need at least 10): move the board around more")
 
     image_size = config.CALIBRATION_IMAGE_SIZE
     objp = pattern_points()
@@ -295,6 +296,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
     return {
         "folder": folder,
         "results": results,
+        "run": os.path.basename(results),
         "installed": install,
         "n_found": n_found,
         "n_unique": n_unique,
@@ -310,6 +312,8 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         "images": images,
         "blend": blend,
         "poses": camera_poses(extrinsics),
+        "rig_pairs": [["rgb_left", "rgb_right"], ["event_left", "event_right"],
+                      ["rgb_left", "event_left"], ["rgb_right", "event_right"]],
     }
 
 
@@ -323,7 +327,7 @@ def main():
     folder = args.folder or os.path.join(PROCESSED_DATA_PATH, sorted(os.listdir(PROCESSED_DATA_PATH))[-1])
     try:
         calibrate(folder, install=not args.no_install)
-    except NotEnoughBoards as e:
+    except UserError as e:
         sys.exit(str(e))
 
 

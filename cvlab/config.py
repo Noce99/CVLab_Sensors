@@ -147,8 +147,23 @@ EVENT_RENDERINGS = ["lockin", "polarity", "count"]
 # before calibration; every consumer of the calibration must do the same.
 CALIBRATION_IMAGE_SIZE = (1280, 720)
 
-# Active calibration, written by RGB_Event_Calibration/calibrate.py
+# Active calibrations, written by Calibration/rgb_event/solve.py and Calibration/rgb_livox/solve.py
 RGB_EVENT_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "rgb_event_calibration.npz"
+RGB_LIVOX_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "rgb_livox_calibration.npz"
+
+# RGB <-> Livox: the Livox points are projected by a virtual pinhole camera (camera-convention
+# axes, no distortion) into a reflectivity image where the chessboard is searched. The HAP sees
+# ~120 x 25 deg: a wide, short image.
+LIVOX_IMAGE_SIZE = (1500, 400)
+LIVOX_FOCAL_PX = 800.0
+LIVOX_CAPTURE_S = 8          # default seconds of points per board (the HAP pattern fills in over time)
+
+# Livox <-> Hesai (target-free, static scenes): P_livox = R P_hesai + t in the camera convention.
+LIVOX_HESAI_CALIBRATION_FILE = REPO_ROOT / "CVLab_live_imgs" / "livox_hesai_calibration.npz"
+LIVOX_HESAI_CAPTURE_S = 15   # default seconds per stop
+# Initial guess: Hesai origin in the Livox frame (x right, y down, z forward), mm. A ruler is enough:
+# the registration converges from +-10 deg / +-30 cm. Measured by registration on 2026-10-13.
+LIVOX_HESAI_INITIAL_T_MM = (-18.0, -121.0, -62.0)
 
 # ============================================================================
 # PREVIEWS / STATUS
