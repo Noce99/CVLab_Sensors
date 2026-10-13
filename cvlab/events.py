@@ -21,6 +21,15 @@ CALIBRATION_SATURATION = 3
 MIN_ACTIVATION = 0.1   # fraction of active pixels to consider a frame usable
 
 
+def open_raw(path, delta_t):
+    """EventsIterator over a recorded .raw file, with the camera's own timestamps.
+
+    By default Metavision shifts a file's timestamps so that its first event is at t = 0, but the
+    .sync.csv pairs are in camera time: a camera opened 13 s before the recording started (buffered
+    events of that time open the file) put every event 13 s early on 2026-10-13."""
+    return EventsIterator(path, delta_t=delta_t, do_time_shifting=False)
+
+
 class EventRecording:
     """One <start_us>.raw file with its <start_us>.sync.csv clock mapping."""
 
@@ -52,7 +61,7 @@ class EventRecording:
         if not targets:
             return
 
-        iterator = EventsIterator(self.raw_path, delta_t=10_000)
+        iterator = open_raw(self.raw_path, delta_t=10_000)
         height, width = iterator.get_size()
         buffer = []
         i = 0

@@ -136,6 +136,7 @@ def record(serial, name, session, status):
     events_stream = device.get_i_events_stream()
     try:
         hot_pixels = mask_hot_pixels(device, serial)
+        limit_event_rate(device, config.EVENT_RECORD_MAX_RATE)
 
         if config.EVENT_TRIGGER_IN:
             trigger_in = device.get_i_trigger_in()
@@ -156,6 +157,7 @@ def record(serial, name, session, status):
             "height": height,
             "trigger_in": config.EVENT_TRIGGER_IN,
             "masked_pixels": hot_pixels,
+            "max_rate_ev_s": config.EVENT_RECORD_MAX_RATE,
             "usb_speeds_mbps": evk4_usb_speeds_mbps(),
         }
         with open(base + ".json", "w") as f:

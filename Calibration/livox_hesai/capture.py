@@ -162,6 +162,9 @@ def blueprint(sensors):
 
     @bp.route("")
     def page():
+        busy = sensors.blocked()
+        if busy:
+            return render_template("busy.html", title=TOOL["title"], reason=busy)
         sensors.use("livox_hesai")
         return render_template("scene_capture.html", tool=dict(TOOL, api=f"{prefix}/api"),
                                weak_strength=WEAK_STRENGTH)

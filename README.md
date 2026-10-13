@@ -47,8 +47,13 @@ journalctl -u ptp4l-cvlab -f
 
 ## Recording
 All settings (IPs, serials, exposure, paths, ...) are in `cvlab/config.py`.
+- Web: `venv_3_12/bin/python Calibration/calibrate.py`, then http://<NUC_IP>:5001 → **Record** (start / stop
+  each sensor group, save or discard the session). The live images are the recorders' small previews.
 - Terminal: `venv_3_12/bin/python get_data/get_data.py` (Ctrl+C to stop; `--only rgb event` to record a subset)
-- Web dashboard: `Cameras_Server/start_server.sh`, then http://<NUC_IP>:5000
+- Old web dashboard: `Cameras_Server/start_server.sh`, then http://<NUC_IP>:5000
+
+The event rate is capped in hardware at `EVENT_RECORD_MAX_RATE` (20 Mev/s per camera): uncapped, a
+flickering lab reached ~38 Mev/s and the events reached the host up to 5 s late.
 
 Sessions are recorded in `get_data/data/<date>/` and moved to `CVLab_live_imgs/<date>/` when saved.
 Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
@@ -61,14 +66,27 @@ Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ├── rgb_clock_sync.csv           Basler clock <-> host clock
 ├── logs/, status/, previews/
 ```
-Readers for all of these are in `cvlab/` (`lidar.py`, `events.py`).
+Readers for all of these are in `cvlab/` (`lidar.py`, `events.py`). Read `.raw` files with
+`cvlab.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
+which breaks the `.sync.csv` mapping when a camera was opened before the recording started.
+
+## Replay
+`Calibration/calibrate.py` → **Replay**: any session of `CVLab_live_imgs/` (or not yet saved, in
+`get_data/data/`) along a timeline (play / pause, ×0.25–×4, frame steps, go to a time; Space and ←/→).
+Each sensor alone at its recorded resolution, or all of them on RGB left with the installed calibrations,
+one checkbox and alpha per sensor: lidar points land exactly (needs RGB ↔ Livox, and Livox ↔ Hesai for
+the Hesai), the other cameras are warped through a plane at a chosen distance. Event recordings are
+rendered once into frames ("Prepare events", `<session>/replay_cache/`, about the recording's duration).
+`/replay?session=<name>&t=<s>&view=<sensor>` opens a moment directly.
+
 
 **Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
 camera can produce more than USB2 can carry. Hot pixels are masked in hardware
 (`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `get_data/find_hot_pixels.py`).
 
 ## Calibration (RGB <-> event, RGB <-> Livox, Livox <-> Hesai)
-Stop the recorders (a sensor can be opened by one program only), then
+Stop the recordings (a sensor can be opened by one program only: the capture pages refuse while the
+Record page records), then
 `venv_3_12/bin/python Calibration/calibrate.py` and open http://<NUC_IP>:5001. The home page has four tools;
 each capture page opens the sensors it needs and releases the others.
 

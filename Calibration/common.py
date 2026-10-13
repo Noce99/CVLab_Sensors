@@ -234,6 +234,9 @@ def capture_blueprint(tool, name, url_prefix, processed_data_path, capture_funct
 
     @bp.route("")
     def page():
+        busy = tool.sensors.blocked()
+        if busy:
+            return render_template("busy.html", title=tool.TOOL["title"], reason=busy)
         tool.sensors.use(tool.TOOL["id"])
         return render_template("capture.html", tool=dict(tool.TOOL, api=f"{url_prefix}/api"),
                                pattern_size=config.PATTERN_SIZE)

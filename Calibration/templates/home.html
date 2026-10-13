@@ -3,18 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rig Calibration</title>
+    <title>Rig Tools</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
 </head>
 <body>
     <header>
         <div class="title">
-            <h1>Rig calibration</h1>
-            <span class="muted">Capture data, then calibrate. Stop get_data.py / Cameras_Server first: a sensor can be opened by one program only.</span>
+            <h1>Rig tools</h1>
+            <span class="muted">Record and replay sessions, capture calibration data and calibrate. Stop get_data.py / Cameras_Server first: a sensor can be opened by one program only.</span>
         </div>
     </header>
 
     <main>
+        <div class="tools data-tools">
+            <a class="tool-card" href="/record">
+                <span class="tool-step">Data</span>
+                <span class="tool-name">Record</span>
+                <span class="tool-desc">Start and stop the recorders of every sensor (full resolution, event rate capped), save or discard the session.</span>
+                <span class="tool-status {{ 'ok' if recording.session else '' }}">
+                    {% if recording.session %}Session {{ recording.session }} open{% else %}No session open{% endif %}
+                </span>
+            </a>
+            <a class="tool-card" href="/replay">
+                <span class="tool-step">Data</span>
+                <span class="tool-name">Replay</span>
+                <span class="tool-desc">Any recorded session along a timeline: each sensor alone, or all of them on RGB left with the installed calibrations.</span>
+                <span class="tool-status">{{ n_sessions }} session{{ '' if n_sessions == 1 else 's' }} recorded</span>
+            </a>
+        </div>
+
+        <h2 class="section-title">Calibration</h2>
         <p class="home-intro">
             RGB ↔ Livox uses the RGB-left intrinsics of the installed RGB ↔ event calibration: calibrate RGB ↔ event first.
             Livox ↔ Hesai needs no target and no camera.

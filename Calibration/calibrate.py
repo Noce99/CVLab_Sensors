@@ -1,7 +1,9 @@
-"""Calibration tools of the rig, in one web page.
+"""Tools of the rig, in one web page: record and replay sessions, calibrate the sensors.
 
 Usage: python Calibration/calibrate.py [--port 5001]
 Open http://<NUC_IP>:5001 and pick a tool:
+  - Record                           the get_data recorders of every sensor, save / discard the session
+  - Replay                           recorded sessions on a timeline, sensors alone or on RGB left
   - Get RGB-event calibration data   live capture of the chessboard in the 2 Basler + 2 EVK4
   - Calibrate RGB <-> event          intrinsics + extrinsics of the four cameras (rgb_event/solve.py)
   - Get RGB-Livox calibration data   live capture of the chessboard in RGB-left + Livox reflectivity
@@ -23,6 +25,7 @@ from flask import Flask, render_template
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Calibration import common
+from Calibration.data import record, replay
 from Calibration.livox_hesai import capture as livox_hesai_capture
 from Calibration.livox_hesai import solve as livox_hesai_solve
 from Calibration.rgb_event import capture as rgb_event_capture
@@ -32,9 +35,6 @@ from Calibration.rgb_livox import solve as rgb_livox_solve
 from Calibration.rig import installed_rig
 from Calibration.sensors import SensorManager
 from cvlab import config
-
-app = Flask(__name__)
-sensors = SensorManager()
 
 SOLVERS = {
     "rgb_event": dict(title="Calibrate RGB ↔ event", cameras=rgb_event_solve.CAMERAS, min_boards=10,
@@ -56,21 +56,6 @@ SOLVERS = {
                                 for axis, value in zip("xyz", config.LIVOX_HESAI_INITIAL_T_MM)]),
 }
 
-for solver in SOLVERS.values():
-    os.makedirs(solver["module"].PROCESSED_DATA_PATH, exist_ok=True)
-    os.makedirs(solver["module"].RESULTS_PATH, exist_ok=True)
-
-app.register_blueprint(rgb_event_capture.blueprint(sensors))
-app.register_blueprint(rgb_livox_capture.blueprint(sensors))
-app.register_blueprint(livox_hesai_capture.blueprint(sensors))
-for tool_id, solver in SOLVERS.items():
-    tool = {"id": tool_id, "title": solver["title"], "cameras": solver["cameras"], "min_boards": solver["min_boards"],
-            "capture_url": solver["capture_url"], "sensors": sensors,
-            **{k: solver[k] for k in ("params", "params_title", "params_note", "count", "count_unit") if k in solver}}
-    module = solver["module"]
-    app.register_blueprint(common.solve_blueprint(tool, f"{tool_id}_solve", solver["url"], module.PROCESSED_DATA_PATH,
-                                                  module.RESULTS_PATH, module.calibrate, solver["install_path"]))
-
 
 def tool_summary(tool_id):
     """Latest session and installed calibration of a tool, for the home page cards."""
@@ -89,29 +74,59 @@ def tool_summary(tool_id):
             "install_path": os.path.relpath(solver["install_path"], config.REPO_ROOT)}
 
 
-@app.route("/")
-def home():
-    sensors.use(None)
-    return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS},
-                           rig=installed_rig())
+def create_app():
+    """(app, sensors, recording). Built here and not at import: the sensor and event-cache
+    processes are spawned, and a spawned process imports this module again."""
+    app = Flask(__name__)
+    sensors = SensorManager()
+    recording = record.Recording()
+    # A sensor can be opened by one program: no calibration capture while a recording runs
+    sensors.blocker = lambda: "a recording is running: stop it on the Record page first" if recording.any_running() else None
 
+    for solver in SOLVERS.values():
+        os.makedirs(solver["module"].PROCESSED_DATA_PATH, exist_ok=True)
+        os.makedirs(solver["module"].RESULTS_PATH, exist_ok=True)
 
-@app.route("/pattern")
-def blinking_pattern():
-    """Blinking chessboard to show on a screen: event cameras only see what changes."""
-    cols, rows = config.PATTERN_SIZE
-    return render_template("pattern.html", cols=cols, rows=rows)
+    app.register_blueprint(rgb_event_capture.blueprint(sensors))
+    app.register_blueprint(rgb_livox_capture.blueprint(sensors))
+    app.register_blueprint(livox_hesai_capture.blueprint(sensors))
+    app.register_blueprint(record.blueprint(sensors, recording))
+    app.register_blueprint(replay.blueprint(sensors, replay.Replay()))
+    for tool_id, solver in SOLVERS.items():
+        tool = {"id": tool_id, "title": solver["title"], "cameras": solver["cameras"], "min_boards": solver["min_boards"],
+                "capture_url": solver["capture_url"], "sensors": sensors,
+                **{k: solver[k] for k in ("params", "params_title", "params_note", "count", "count_unit") if k in solver}}
+        module = solver["module"]
+        app.register_blueprint(common.solve_blueprint(tool, f"{tool_id}_solve", solver["url"], module.PROCESSED_DATA_PATH,
+                                                      module.RESULTS_PATH, module.calibrate, solver["install_path"]))
+
+    @app.route("/")
+    def home():
+        sensors.use(None)
+        return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS},
+                               rig=installed_rig(), recording=recording.status(),
+                               n_sessions=len(replay.find_sessions()))
+
+    @app.route("/pattern")
+    def blinking_pattern():
+        """Blinking chessboard to show on a screen: event cameras only see what changes."""
+        cols, rows = config.PATTERN_SIZE
+        return render_template("pattern.html", cols=cols, rows=rows)
+
+    return app, sensors, recording
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args()
-    print(f"Calibration tools on http://0.0.0.0:{args.port}")
+    app, sensors, recording = create_app()
+    print(f"Rig tools on http://0.0.0.0:{args.port}")
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     try:
         app.run(host="0.0.0.0", port=args.port, threaded=True, use_reloader=False)
     finally:
+        recording.stop(None)   # the recorders flush their data
         sensors.close()
 
 

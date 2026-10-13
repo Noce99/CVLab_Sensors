@@ -470,6 +470,30 @@ class LidarStream:
 # MANAGER
 # ============================================================================
 
+def stop_stale_recorders():
+    """Stop the lidar recorders a previous run left writing into STREAM_DIR (a server killed without
+    its cleanup leaves them running: nothing reads their chunks and the disk fills up), and empty it."""
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().decode(errors="replace")
+        except OSError:
+            continue
+        if STREAM_DIR in cmdline and "save_point_cloud" in cmdline:
+            print(f"Stopping a stale lidar recorder (pid {pid}) from a previous run")
+            try:
+                os.kill(int(pid), signal.SIGINT)
+                for _ in range(50):
+                    os.kill(int(pid), 0)
+                    time.sleep(0.1)
+                os.kill(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    shutil.rmtree(STREAM_DIR, ignore_errors=True)
+
+
 class SensorManager:
     """Opens the sensors a tool needs and closes the others, in the background (opening the
     event cameras takes several seconds)."""
@@ -478,6 +502,7 @@ class SensorManager:
              None: set()}
 
     def __init__(self):
+        stop_stale_recorders()
         self.rgb = RgbCameras()
         self.event = {"event_left": EventCameraProcess(config.EVENT_LEFT_SERIAL),
                       "event_right": EventCameraProcess(config.EVENT_RIGHT_SERIAL)}
@@ -485,11 +510,18 @@ class SensorManager:
         self.hesai = LidarStream("hesai", lambda folder: [config.HESAI_RECORDER, folder, config.HESAI_IP])
         self.lock = threading.Lock()
         self.tool = None
+        self.blocker = lambda: None   # -> why the sensors cannot be opened now (a recording runs), or None
+
+    def blocked(self):
+        return self.blocker()
 
     def use(self, tool):
-        """Switch to the sensors of tool (a key of NEEDS); returns at once."""
+        """Switch to the sensors of tool (a key of NEEDS); returns at once. Nothing is opened while
+        blocked (see blocker)."""
         if tool not in self.NEEDS:
             raise ValueError(f"unknown tool {tool!r}")
+        if tool is not None and self.blocked():
+            return
         self.tool = tool
         threading.Thread(target=self._apply, args=(tool,), daemon=True).start()
 

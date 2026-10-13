@@ -87,8 +87,11 @@ EVENT_RIGHT_SERIAL = "00051961"
 EVENT_TRIGGER_IN = False
 # Hardware event rate cap (ERC) of each EVK4 in the live calibration tool, in events/s.
 # Flickering scenes reach 60 Mev/s, more than the tool can render live. Beyond the cap the
-# sensor drops events evenly in time. The recorder does not use it (None = no cap).
+# sensor drops events evenly in time (None = no cap).
 EVENT_CALIBRATION_MAX_RATE = 20_000_000
+# The same for recordings: uncapped, a flickering lab reached ~38 Mev/s per camera
+# (~150 MB/s of raw data each, events delivered late) on 2026-10-09.
+EVENT_RECORD_MAX_RATE = 20_000_000
 # Pixels masked in hardware (x, y). Find them with get_data/find_hot_pixels.py.
 EVENT_HOT_PIXELS = {
     EVENT_LEFT_SERIAL: [(1186, 491), (397, 348), (798, 380)],  # 87% of all events on 2026-10-09

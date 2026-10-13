@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <a class="back" href="/">← Tools</a>
+            <h1>{{ title }}</h1>
+        </div>
+    </header>
+    <main>
+        <section class="panel">
+            <div class="panel-header"><h2>Sensors busy</h2></div>
+            <p class="message warn table-title">{{ reason }}</p>
+            <p class="table-title"><a href="/record">Record page</a></p>
+        </section>
+    </main>
+</body>
+</html>
