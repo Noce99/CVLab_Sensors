@@ -130,6 +130,8 @@ function showResult(r) {
     document.getElementById('n-unique').textContent = r.n_unique ?? '-';
     document.getElementById('stat-unique').hidden = r.n_unique === undefined;
     document.getElementById('n-used').textContent = r.n_used;
+    document.getElementById('stat-square').hidden = r.square_size_mm === undefined;
+    document.getElementById('square-size').textContent = r.square_size_mm ?? '-';
     const [foundLabel, usedLabel] = r.count_labels || ['boards found', 'used'];
     document.getElementById('label-found').textContent = foundLabel;
     document.getElementById('label-used').textContent = usedLabel;

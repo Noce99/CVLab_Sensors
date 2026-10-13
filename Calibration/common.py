@@ -2,6 +2,7 @@
 
 import base64
 import io
+import json
 import os
 import shutil
 import threading
@@ -16,6 +17,8 @@ from flask import Blueprint, jsonify, render_template, request, send_file, send_
 from cvlab import config
 
 PREVIEW_WIDTH = 640
+SESSION_FILE = "session.json"   # per session settings, e.g. the chessboard square size
+MIN_SQUARE_MM, MAX_SQUARE_MM = 1.0, 1000.0
 
 
 def jpeg(image, quality=80):
@@ -59,12 +62,32 @@ def sessions(folder):
 # SAMPLES
 # ============================================================================
 
+def session_square_size(folder):
+    """Chessboard square size (mm) of a session: the one entered on the capture page, or
+    config.SQUARE_SIZE_MM for sessions made before it was recorded."""
+    try:
+        with open(os.path.join(folder, SESSION_FILE)) as f:
+            return float(json.load(f)["square_size_mm"])
+    except (OSError, KeyError, ValueError):
+        return float(config.SQUARE_SIZE_MM)
+
+
+def check_square_size(value):
+    value = float(value)
+    if not MIN_SQUARE_MM <= value <= MAX_SQUARE_MM:
+        raise ValueError(f"square size {value} mm: expected {MIN_SQUARE_MM:.0f}-{MAX_SQUARE_MM:.0f} mm")
+    return value
+
+
 class Samples:
     """Captured boards in <processed_data>/<session>/<index>/: <cam>_corners.npy / .png and <cam>.png
     for every camera, plus whatever extra files the tool writes (see add)."""
 
-    def __init__(self, folder, cameras, image_sizes, dedup_px, reference="rgb_left"):
+    def __init__(self, folder, cameras, image_sizes, dedup_px, reference="rgb_left", square_size_mm=None):
         self.folder = folder   # created with the first board
+        # An existing session keeps its own square size; a new one takes the given one
+        self.square_size_mm = (session_square_size(folder) if os.path.isdir(folder) or square_size_mm is None
+                               else square_size_mm)
         self.cameras = cameras
         self.image_sizes = image_sizes   # {cam: (w, h)}, to normalise the corners for the page
         self.dedup_px = dedup_px
@@ -94,6 +117,7 @@ class Samples:
             name = f"{index:05d}"
             sample = os.path.join(self.folder, name)
             os.makedirs(sample)
+            self.save_session_info()
             for cam, c in corners.items():
                 np.save(os.path.join(sample, f"{cam}_corners.npy"), c)
                 cv2.imwrite(os.path.join(sample, f"{cam}_corners.png"), draw(images[cam], c))
@@ -104,6 +128,15 @@ class Samples:
                 f.write(log)
             self.corners[name] = corners
             return name
+
+    def set_square_size(self, value):
+        self.square_size_mm = check_square_size(value)
+        if os.path.isdir(self.folder):
+            self.save_session_info()
+
+    def save_session_info(self):
+        with open(os.path.join(self.folder, SESSION_FILE), "w") as f:
+            json.dump({"square_size_mm": self.square_size_mm}, f)
 
     def delete(self, name):
         with self.lock:
@@ -211,6 +244,7 @@ def capture_blueprint(tool, name, url_prefix, processed_data_path, capture_funct
                         "folder": os.path.relpath(tool.samples.folder, config.REPO_ROOT),
                         "session": os.path.basename(tool.samples.folder),
                         "save_failed": getattr(tool, "failed_folder", None) is not None,
+                        "square_size_mm": tool.samples.square_size_mm,
                         "pattern_size": config.PATTERN_SIZE})
 
     @bp.route("/api/sessions")
@@ -225,7 +259,9 @@ def capture_blueprint(tool, name, url_prefix, processed_data_path, capture_funct
                 tool.open_session(body["name"])
             if "save_failed" in body:
                 tool.set_save_failed(bool(body["save_failed"]))
-        except ValueError as e:
+            if "square_size_mm" in body:
+                tool.samples.set_square_size(body["square_size_mm"])
+        except (TypeError, ValueError) as e:
             return jsonify({"error": str(e)}), 400
         return jsonify({"session": os.path.basename(tool.samples.folder)})
 

@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('session').addEventListener('change', changeSession);
     document.getElementById('open-pattern')?.addEventListener('click', openPattern);
     document.getElementById('save-failed')?.addEventListener('change', e => setSession({save_failed: e.target.checked}));
+    document.getElementById('square-size').addEventListener('change', e => setSession({square_size_mm: e.target.value}));
     document.addEventListener('keydown', e => {
         if (e.code === 'Space' && !e.repeat && e.target.tagName !== 'INPUT') {
             e.preventDefault();
@@ -143,6 +144,8 @@ async function updateStatus() {
         patternSize = status.pattern_size;
         const select = document.getElementById('session');
         select.value = [...select.options].some(o => o.value === status.session) ? status.session : '';
+        const square = document.getElementById('square-size');
+        if (document.activeElement !== square) square.value = status.square_size_mm;
         const saveFailed = document.getElementById('save-failed');
         if (saveFailed) saveFailed.checked = status.save_failed;
         for (const cam of CAMERAS) {

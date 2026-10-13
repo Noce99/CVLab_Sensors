@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from Calibration.common import UserError
+from Calibration.common import UserError, session_square_size
 from cvlab import config
 from cvlab.calibration import (full_frame_intrinsics, is_vertical_baseline, pattern_points,
                                rectification_check_image, rectify_pair, stereo_rectify_maps)
@@ -227,7 +227,9 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         raise UserError(f"Not enough boards to calibrate ({n_unique}, need at least 10): move the board around more")
 
     image_size = config.CALIBRATION_IMAGE_SIZE
-    objp = pattern_points()
+    square_mm = session_square_size(folder)
+    log(f"Chessboard: {config.PATTERN_SIZE[0]}x{config.PATTERN_SIZE[1]} inner corners, {square_mm:g} mm squares")
+    objp = pattern_points(square_size_mm=square_mm)
 
     log("Intrinsics:")
     intrinsics, view_errs, samples = calibrate_intrinsics(samples, objp, image_size, log, step)
@@ -277,7 +279,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         calibration_image_size=np.array(image_size),
         rgb_roi_fraction=np.array(config.RGB_ROI_FRACTION),
         pattern_size=np.array(config.PATTERN_SIZE),
-        square_size_mm=config.SQUARE_SIZE_MM,
+        square_size_mm=square_mm,
         n_boards=len(samples),
         rgb_K_left=intrinsics["rgb_left"][1], rgb_D_left=intrinsics["rgb_left"][2],
         rgb_K_right=intrinsics["rgb_right"][1], rgb_D_right=intrinsics["rgb_right"][2],
@@ -295,6 +297,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
 
     return {
         "folder": folder,
+        "square_size_mm": square_mm,
         "results": results,
         "run": os.path.basename(results),
         "installed": install,

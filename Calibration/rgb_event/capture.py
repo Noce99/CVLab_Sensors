@@ -62,7 +62,10 @@ class RgbEventCapture:
         elif name not in os.listdir(PROCESSED_DATA_PATH):
             raise ValueError(f"no session {name!r}")
         image_sizes = {cam: config.CALIBRATION_IMAGE_SIZE for cam in CAMERAS}
-        self.samples = Samples(os.path.join(PROCESSED_DATA_PATH, name), CAMERAS, image_sizes, DEDUP_PX)
+        # A new session keeps the square size entered for the previous one (same board, usually)
+        square = self.samples.square_size_mm if self.samples is not None else None
+        self.samples = Samples(os.path.join(PROCESSED_DATA_PATH, name), CAMERAS, image_sizes, DEDUP_PX,
+                               square_size_mm=square)
         if self.failed_folder is not None:
             self.set_save_failed(True)
 

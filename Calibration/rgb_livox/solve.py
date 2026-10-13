@@ -26,7 +26,7 @@ import h5py
 import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from Calibration.common import UserError
+from Calibration.common import UserError, session_square_size
 from Calibration.rgb_event.solve import camera_poses, deduplicate, monotonic_radius
 from Calibration.rgb_livox import lidar_image
 from cvlab import config
@@ -138,7 +138,9 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
     K, D, rig_calib = rig_intrinsics()
     log(f"RGB-left intrinsics from {config.RGB_EVENT_CALIBRATION_FILE}: fx {K[0, 0]:.1f} fy {K[1, 1]:.1f} "
         f"cx {K[0, 2]:.1f} cy {K[1, 2]:.1f}")
-    objp = pattern_points()
+    square_mm = session_square_size(folder)
+    log(f"Chessboard: {config.PATTERN_SIZE[0]}x{config.PATTERN_SIZE[1]} inner corners, {square_mm:g} mm squares")
+    objp = pattern_points(square_size_mm=square_mm)
 
     step("Stereo RGB left -> Livox")
     rms, R, T, per_view = stereo(samples, objp, K, D)
@@ -195,7 +197,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         rgb_roi_fraction=np.array(config.RGB_ROI_FRACTION),
         livox_image_size=np.array(config.LIVOX_IMAGE_SIZE),
         pattern_size=np.array(config.PATTERN_SIZE),
-        square_size_mm=config.SQUARE_SIZE_MM,
+        square_size_mm=square_mm,
         n_boards=len(samples),
         rgb_K_left=K, rgb_D_left=D, livox_K=lidar_image.lidar_K(), livox_D=lidar_image.LIDAR_D,
         R=R, T=T, rms=rms,                     # P_livox_camera = R P_rgb_left + T (livox camera: camera-convention axes)
@@ -210,6 +212,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
 
     return {
         "folder": folder,
+        "square_size_mm": square_mm,
         "results": results,
         "run": os.path.basename(results),
         "installed": install,
