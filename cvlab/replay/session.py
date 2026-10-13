@@ -1,10 +1,11 @@
 """Random access to a recorded session for the replay page.
 
 RGB frames are PNG files named by host time, lidar chunks are H5 files with a clock mapping
-(cvlab.lidar). Event recordings (.raw) cannot be read at a random time fast enough (a seek decodes
-everything before it, ~0.4 s per recorded second, at up to ~40 Mev/s): they are rendered once into
-frames of EVENT_FRAME_US (<session>/replay_cache/<camera>/<host_us>.jpg + index.npy) by prepare(),
-one process per camera, a single pass over each file.
+(cvlab.sensors.lidar). Event recordings (.raw) cannot be read at a random time fast enough (a seek
+decodes everything before it, ~0.4 s per recorded second, at up to ~40 Mev/s): they are rendered once
+into frames, one per accumulation time (<session>/replay_cache/<representation>_<ms>ms/<camera>/
+<host_us>.png + index.npy) by Preparation, one process per camera, a single pass over each file.
+Every event is in exactly one frame: the frame at host time t shows the events of (t - accumulation, t].
 """
 
 import bisect
@@ -26,12 +27,37 @@ RGB = ("rgb_left", "rgb_right")
 EVENTS = ("event_left", "event_right")
 LIDARS = {"livox": "lidar_livox", "hesai": "lidar_hesai"}
 SENSORS = list(RGB) + list(EVENTS) + list(LIDARS)
-EVENT_FRAME_US = 33_333           # one event frame per 1/30 s, events of that interval
 CACHE_DIR = "replay_cache"
+DEFAULT_EVENT_REPRESENTATION = "tencode"   # see cvlab.sensors.events.EVENT_REPRESENTATIONS
+DEFAULT_EVENT_ACCUMULATION_MS = 20
+MIN_EVENT_ACCUMULATION_MS, MAX_EVENT_ACCUMULATION_MS = 1, 1000
 GAP_US = {"rgb": 1_000_000, "event": 200_000, "lidar": 2_000_000}   # longer holes split the timeline bars
 MAX_RGB_OFFSET_US = 500_000       # an RGB frame further than this from the requested time is not shown
 RGB_SAME_EXPOSURE_US = 5_000      # see Session.rgb_frame
-MAX_EVENT_OFFSET_US = 100_000
+MAX_EVENT_OFFSET_US = 100_000    # an event frame further than this (or its accumulation time) is not shown
+
+
+def event_cache_name(representation, accumulation_ms):
+    """Folder of a cache in <session>/replay_cache/, e.g. tencode_20ms."""
+    from cvlab.sensors.events import EVENT_REPRESENTATIONS
+    if representation not in EVENT_REPRESENTATIONS:
+        raise ValueError(f"unknown event representation {representation!r}")
+    if not MIN_EVENT_ACCUMULATION_MS <= accumulation_ms <= MAX_EVENT_ACCUMULATION_MS:
+        raise ValueError(f"accumulation {accumulation_ms} ms: expected "
+                         f"{MIN_EVENT_ACCUMULATION_MS}-{MAX_EVENT_ACCUMULATION_MS} ms")
+    return f"{representation}_{int(accumulation_ms)}ms"
+
+
+def event_sync_times(folder):
+    """Sorted host times (us) of the clock sync pairs of every recording of an event folder: the
+    stretches with events, ~10 per second, without decoding the events."""
+    times = []
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if name.endswith(".sync.csv"):
+            sync = np.loadtxt(os.path.join(folder, name), delimiter=",", skiprows=1, dtype=np.int64, ndmin=2)
+            if len(sync):
+                times.append(sync[:, 1] // 1000)
+    return np.sort(np.concatenate(times)) if times else np.zeros(0, np.int64)
 
 
 def find_sessions():
@@ -117,24 +143,32 @@ class Session:
         self.lidar = {s: Lidar(os.path.join(path, folder)) for s, folder in LIDARS.items()}
         self.raw = {cam: sorted(f for f in os.listdir(os.path.join(path, cam)) if f.endswith(".raw"))
                     if os.path.isdir(os.path.join(path, cam)) else [] for cam in EVENTS}
-        self.events = {}
-        self.load_event_cache()
+        self.event_times = {cam: event_sync_times(os.path.join(path, cam)) for cam in EVENTS}
+        self.event_indexes = {}   # (cache name, camera) -> sorted frame host times, or None
         self.images = OrderedDict()   # path -> image, a few full RGB frames
         self.lock = threading.Lock()
 
-    def load_event_cache(self):
-        for cam in EVENTS:
-            index = os.path.join(self.path, CACHE_DIR, cam, "index.npy")
-            self.events[cam] = np.load(index) if os.path.exists(index) else None
+    def event_index(self, cache, cam):
+        """Frame host times of an event cache (see event_cache_name), None when not rendered."""
+        key = (cache, cam)
+        if self.event_indexes.get(key) is None:
+            index = os.path.join(self.path, CACHE_DIR, cache, cam, "index.npy")
+            self.event_indexes[key] = np.load(index) if os.path.exists(index) else None
+        return self.event_indexes[key]
 
-    def events_prepared(self):
-        return all(self.events[cam] is not None or not self.raw[cam] for cam in EVENTS)
+    def forget_event_cache(self, cache):
+        """Reload the cache from disk next time (after it is rendered again)."""
+        for cam in EVENTS:
+            self.event_indexes.pop((cache, cam), None)
+
+    def events_prepared(self, cache):
+        return all(self.event_index(cache, cam) is not None or not self.raw[cam] for cam in EVENTS)
 
     def availability(self):
         """{sensor: [[start_us, end_us]]} of the data each sensor has."""
         out = {cam: segments(self.rgb[cam], GAP_US["rgb"]) for cam in RGB}
         for cam in EVENTS:
-            out[cam] = segments(self.events[cam], GAP_US["event"]) if self.events[cam] is not None else []
+            out[cam] = segments(self.event_times[cam], GAP_US["event"])
         for s, lidar in self.lidar.items():
             out[s] = []
             if lidar.chunks:
@@ -148,10 +182,10 @@ class Session:
             return None
         return min(s[0] for s in spans), max(s[1] for s in spans)
 
-    def summary(self):
+    def summary(self, cache):
         availability = self.availability()
         return {"name": self.name, "range": self.time_range(availability), "availability": availability,
-                "events_prepared": self.events_prepared(), "has_raw": {cam: bool(self.raw[cam]) for cam in EVENTS},
+                "events_prepared": self.events_prepared(cache), "has_raw": {cam: bool(self.raw[cam]) for cam in EVENTS},
                 "frames": {cam: len(self.rgb[cam]) for cam in RGB}}
 
     # -- frames ---------------------------------------------------------------
@@ -186,15 +220,16 @@ class Session:
         j = bisect.bisect_right(times, t_us)
         return (times[i - 1] if i > 0 else None), (times[j] if j < len(times) else None)
 
-    def event_frame(self, cam, t_us):
-        """(host_us, BGR frame) of the events of the EVENT_FRAME_US ending at or before t, or None."""
-        index = self.events[cam]
+    def event_frame(self, cache, cam, t_us):
+        """(host_us, BGR frame) of the newest frame of the cache ending at or before t, or None."""
+        index = self.event_index(cache, cam)
         if index is None or not len(index):
             return None
         i = int(np.searchsorted(index, t_us, side="right")) - 1
-        if i < 0 or t_us - index[i] > MAX_EVENT_OFFSET_US:
+        accumulation_us = int(cache.rsplit("_", 1)[1][:-2]) * 1000
+        if i < 0 or t_us - index[i] > max(MAX_EVENT_OFFSET_US, accumulation_us):
             return None
-        return int(index[i]), cv2.imread(os.path.join(self.path, CACHE_DIR, cam, f"{index[i]}.jpg"))
+        return int(index[i]), cv2.imread(os.path.join(self.path, CACHE_DIR, cache, cam, f"{index[i]}.png"))
 
     def lidar_points(self, sensor, t_us, window_us):
         """(xyz camera convention mm, intensity) of the window_us before t."""
@@ -205,28 +240,30 @@ class Session:
 # EVENT CACHE
 # ============================================================================
 
-def render_events(session_path, cam, progress):
-    """Child process: render every EVENT_FRAME_US of the camera's raw files into JPEG frames."""
-    from cvlab.sensors.events import colored_frame, find_recordings, open_raw
+def render_events(session_path, cam, representation, accumulation_ms, progress):
+    """Child process: render the camera's raw files into one frame per accumulation time."""
+    from cvlab.sensors.events import find_recordings, open_raw, render_window
 
-    out = os.path.join(session_path, CACHE_DIR, cam)
+    accumulation_us = int(accumulation_ms) * 1000
+    out = os.path.join(session_path, CACHE_DIR, event_cache_name(representation, accumulation_ms), cam)
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     recordings = find_recordings(os.path.join(session_path, cam))
     total = sum(max(r.last_host_us - r.first_host_us, 1) for r in recordings)
     done, times = 0, []
     for rec in recordings:
-        iterator = open_raw(rec.raw_path, EVENT_FRAME_US)
+        # The iterator's slices are aligned on multiples of delta_t in camera time: one slice, one frame
+        iterator = open_raw(rec.raw_path, accumulation_us)
         height, width = iterator.get_size()
         span = max(rec.last_host_us - rec.first_host_us, 1)
         for k, evs in enumerate(iterator):
             # Intervals without events are not frames; the end of an interval comes from its events
             if not len(evs):
                 continue
-            camera_end = (int(evs["t"][-1]) // EVENT_FRAME_US + 1) * EVENT_FRAME_US
+            camera_end = (int(evs["t"][-1]) // accumulation_us + 1) * accumulation_us
+            frame = render_window(representation, evs, width, height, camera_end - accumulation_us, camera_end)
             host_us = rec.to_host_us(camera_end)
-            cv2.imwrite(os.path.join(out, f"{host_us}.jpg"), colored_frame(evs, width, height),
-                        [cv2.IMWRITE_JPEG_QUALITY, 85])
+            cv2.imwrite(os.path.join(out, f"{host_us}.png"), frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
             times.append(host_us)
             if k % 15 == 0:
                 progress.value = min((done + min(host_us - rec.first_host_us, span)) / total, 0.999)
@@ -236,35 +273,38 @@ def render_events(session_path, cam, progress):
 
 
 class Preparation:
-    """Renders the event cache of one session in the background, both cameras in parallel."""
+    """Renders one event cache of one session in the background, both cameras in parallel."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.session = None
+        self.cache = None
         self.progress = {}
         self.state = "idle"
         self.error = None
 
-    def start(self, session):
+    def start(self, session, representation, accumulation_ms):
+        cache = event_cache_name(representation, accumulation_ms)
         with self.lock:
             if self.state == "running":
                 return False
-            self.session, self.state, self.error = session.name, "running", None
+            self.session, self.cache, self.state, self.error = session.name, cache, "running", None
             cams = [cam for cam in EVENTS if session.raw[cam]]
             context = multiprocessing.get_context("spawn")
             self.progress = {cam: context.Value("d", 0.0) for cam in cams}
-            processes = [context.Process(target=render_events, args=(session.path, cam, self.progress[cam]), daemon=True)
+            processes = [context.Process(target=render_events, daemon=True,
+                                         args=(session.path, cam, representation, accumulation_ms, self.progress[cam]))
                          for cam in cams]
         for p in processes:
             p.start()
-        threading.Thread(target=self.wait, args=(session, processes), daemon=True).start()
+        threading.Thread(target=self.wait, args=(session, cache, processes), daemon=True).start()
         return True
 
-    def wait(self, session, processes):
+    def wait(self, session, cache, processes):
         for p in processes:
             p.join()
         failed = [p for p in processes if p.exitcode != 0]
-        session.load_event_cache()
+        session.forget_event_cache(cache)
         with self.lock:
             self.state = "failed" if failed else "done"
             if failed:
@@ -272,5 +312,5 @@ class Preparation:
 
     def status(self):
         with self.lock:
-            return {"session": self.session, "state": self.state, "error": self.error,
+            return {"session": self.session, "cache": self.cache, "state": self.state, "error": self.error,
                     "progress": {cam: round(v.value, 3) for cam, v in self.progress.items()}}

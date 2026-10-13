@@ -158,7 +158,10 @@ class Rig:
             mx, my = self.warp_maps(sensor, size, depth_mm)
         else:
             mx, my = self.depth_warp_maps(sensor, size, depth_mm)
-        out = cv2.remap(image, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        # Event frames are isolated pixels: interpolating them with their black neighbours spreads
+        # dim pixels around every event, which darken the RGB image they are blended on
+        interpolation = cv2.INTER_NEAREST if sensor.startswith("event") else cv2.INTER_LINEAR
+        out = cv2.remap(image, mx, my, interpolation, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         return out, mx >= 0
 
     def rays(self, size, step):

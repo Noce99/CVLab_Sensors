@@ -17,7 +17,10 @@ from cvlab import config
 from cvlab.calibration.common import to_calibration_size
 from cvlab.recording.recorders import discard_session, save_session
 from cvlab.replay import views
-from cvlab.replay.session import EVENTS, LIDARS, RGB, SENSORS, Preparation, Session, find_sessions
+from cvlab.replay.session import (DEFAULT_EVENT_ACCUMULATION_MS, DEFAULT_EVENT_REPRESENTATION, EVENTS, LIDARS,
+                                  MAX_EVENT_ACCUMULATION_MS, MIN_EVENT_ACCUMULATION_MS, RGB, SENSORS, Preparation,
+                                  Session, event_cache_name, find_sessions)
+from cvlab.sensors.events import EVENT_REPRESENTATIONS
 from cvlab.web import jpeg
 
 LABELS = {"rgb_left": "RGB left", "rgb_right": "RGB right", "event_left": "Event left",
@@ -25,7 +28,7 @@ LABELS = {"rgb_left": "RGB left", "rgb_right": "RGB right", "event_left": "Event
 DEFAULT_ALPHA = {"rgb_left": 1.0, "rgb_right": 0.0, "event_left": 0.6, "event_right": 0.0, "livox": 0.8, "hesai": 0.8}
 CALIBRATION_FILES = (config.RGB_EVENT_CALIBRATION_FILE, config.RGB_LIVOX_CALIBRATION_FILE,
                      config.LIVOX_HESAI_CALIBRATION_FILE)
-EVENT_BACKGROUND = 64   # grey of cvlab.events.colored_frame where nothing happened
+EVENT_MIN_LEVEL = 12    # event frames are black where nothing happened: dimmer pixels stay transparent
 
 
 class Replay:
@@ -69,8 +72,8 @@ class Replay:
             self.rig, self.rig_stamp = views.Rig(), stamp
         return self.rig
 
-    def render(self, session, t, view, full_res, depth_m, lidar_ms, alphas, warp="lidar"):
-        """(BGR image, info) of the time t: info = {"times": {sensor: host_us}, "notes": {sensor: why not
+    def render(self, session, t, view, full_res, depth_m, lidar_ms, alphas, cache, warp="lidar"):
+        """(BGR image, info) of the time t, events from the cache named `cache` (event_cache_name): info = {"times": {sensor: host_us}, "notes": {sensor: why not
         shown}, "warp": how the other cameras were reprojected}. warp: "lidar" (per-pixel lidar depth,
         depth_m where the lidars see nothing) or "plane" (everything at depth_m)."""
         times, notes = {}, {}
@@ -82,9 +85,10 @@ class Replay:
             times[view] = frame[0]
             return (frame[1] if full_res else to_calibration_size(frame[1])), {"times": times, "notes": notes}
         if view in EVENTS:
-            frame = session.event_frame(view, t)
+            frame = session.event_frame(cache, view, t)
             if frame is None:
-                note = "prepare the events first" if session.events[view] is None else "no events near this time"
+                note = ("prepare the events first" if session.event_index(cache, view) is None
+                        else "no events near this time")
                 return None, {"times": times, "notes": {view: note}}
             times[view] = frame[0]
             return frame[1], {"times": times, "notes": notes}
@@ -132,16 +136,17 @@ class Replay:
                 frame = session.rgb_frame(sensor, t)
                 layer = None if frame is None else to_calibration_size(frame[1])
             else:
-                frame = session.event_frame(sensor, t)
+                frame = session.event_frame(cache, sensor, t)
                 layer = None if frame is None else frame[1]
             if frame is None:
-                notes[sensor] = ("prepare the events first" if sensor in EVENTS and session.events[sensor] is None
+                notes[sensor] = ("prepare the events first"
+                                 if sensor in EVENTS and session.event_index(cache, sensor) is None
                                  else "no data near this time")
                 continue
             times[sensor] = frame[0]
             warped, mask = rig.warp(sensor, layer, size, depth)
-            if sensor in EVENTS:   # only the pixels with events, the grey background stays transparent
-                mask &= np.any(np.abs(warped.astype(np.int16) - EVENT_BACKGROUND) > 12, axis=2)
+            if sensor in EVENTS:   # only the pixels with events, the black background stays transparent
+                mask &= warped.max(axis=2) > EVENT_MIN_LEVEL
             views.blend(out, warped, mask, alpha)
 
         for sensor in LIDARS:
@@ -167,13 +172,24 @@ class Replay:
         return out, {"times": times, "notes": notes, "warp": info_warp if cameras else None}
 
 
+def event_settings(args):
+    """(representation, accumulation ms) of a request: ?events=<representation>&acc_ms=<ms>."""
+    representation = args.get("events", DEFAULT_EVENT_REPRESENTATION)
+    accumulation_ms = int(float(args.get("acc_ms", DEFAULT_EVENT_ACCUMULATION_MS)))
+    event_cache_name(representation, accumulation_ms)   # ValueError when out of range
+    return representation, accumulation_ms
+
+
 def blueprint(sensors, replay, recording):
     bp = Blueprint("replay", __name__, url_prefix="/replay")
 
     @bp.route("")
     def page():
         sensors.use(None)
-        return render_template("replay.html", labels=LABELS, sensors=SENSORS, alphas=DEFAULT_ALPHA)
+        return render_template("replay.html", labels=LABELS, sensors=SENSORS, alphas=DEFAULT_ALPHA,
+                               representations=EVENT_REPRESENTATIONS, default_representation=DEFAULT_EVENT_REPRESENTATION,
+                               default_accumulation_ms=DEFAULT_EVENT_ACCUMULATION_MS,
+                               accumulation_range=(MIN_EVENT_ACCUMULATION_MS, MAX_EVENT_ACCUMULATION_MS))
 
     @bp.route("/api/sessions")
     def sessions():
@@ -185,8 +201,12 @@ def blueprint(sensors, replay, recording):
             session = replay.session(name)
         except KeyError:
             return jsonify({"error": f"no session {name}"}), 404
+        try:
+            cache = event_cache_name(*event_settings(request.args))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         rig = replay.current_rig()
-        return jsonify({**session.summary(), "rig_missing": rig.missing})
+        return jsonify({**session.summary(cache), "rig_missing": rig.missing})
 
     @bp.route("/api/session/<name>/prepare", methods=["POST"])
     def prepare(name):
@@ -194,7 +214,11 @@ def blueprint(sensors, replay, recording):
             session = replay.session(name)
         except KeyError:
             return jsonify({"error": f"no session {name}"}), 404
-        if not replay.preparation.start(session):
+        try:
+            representation, accumulation_ms = event_settings(request.args)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if not replay.preparation.start(session, representation, accumulation_ms):
             return jsonify({"error": "already preparing a session"}), 409
         return jsonify({"started": name})
 
@@ -214,13 +238,14 @@ def blueprint(sensors, replay, recording):
             alphas = {k: float(v) for k, v in json.loads(args.get("layers", "{}")).items() if k in SENSORS}
             depth_m = min(max(float(args.get("depth", 5)), 0.5), 200)
             lidar_ms = min(max(float(args.get("lidar_ms", 100)), 10), 10_000)
+            cache = event_cache_name(*event_settings(args))
         except (KeyError, ValueError) as e:
             return jsonify({"error": f"bad request: {e}"}), 400
         view = args.get("view", "overlay")
         if view != "overlay" and view not in SENSORS:
             return jsonify({"error": f"unknown view {view}"}), 400
         started = time.monotonic()
-        image, info = replay.render(session, t, view, args.get("res") == "full", depth_m, lidar_ms, alphas,
+        image, info = replay.render(session, t, view, args.get("res") == "full", depth_m, lidar_ms, alphas, cache,
                                     "plane" if args.get("warp") == "plane" else "lidar")
         if image is None:
             w, h = config.CALIBRATION_IMAGE_SIZE

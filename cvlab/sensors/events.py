@@ -120,6 +120,53 @@ def colored_frame(evs, width, height):
     return img
 
 
+# Replay representations of the events of a window (t_start, t_end], BGR on black:
+# ON events red, OFF events blue, black where nothing happened.
+HISTOGRAM_SATURATION = 3   # events of one polarity at a pixel for full intensity
+
+
+def tencode_frame(evs, width, height, t_start, t_end):
+    """TEncode: the newest event of each pixel, red (ON) or blue (OFF), its time in green from 0 at
+    t_start to 255 at t_end (recent ON events turn yellow, recent OFF events cyan)."""
+    img = np.zeros((height, width, 3), np.uint8)
+    if not len(evs):
+        return img
+    pixel = evs["y"].astype(np.int64) * width + evs["x"]
+    # Events are in time order: the last occurrence of each pixel is its newest event
+    _, first_reversed = np.unique(pixel[::-1], return_index=True)
+    newest = len(pixel) - 1 - first_reversed
+    flat = img.reshape(-1, 3)
+    on = evs["p"][newest] > 0
+    flat[pixel[newest], 2] = np.where(on, 255, 0)
+    flat[pixel[newest], 0] = np.where(on, 0, 255)
+    age = (evs["t"][newest].astype(np.float64) - t_start) / max(t_end - t_start, 1)
+    flat[pixel[newest], 1] = np.clip(age * 255, 0, 255).astype(np.uint8)
+    return img
+
+
+def histogram_frame(evs, width, height, saturation=HISTOGRAM_SATURATION):
+    """Event count of each polarity per pixel: ON in red, OFF in blue (both: magenta), saturated."""
+    pixel = evs["y"].astype(np.int64) * width + evs["x"]
+    on = evs["p"] > 0
+    img = np.zeros((height, width, 3), np.uint8)
+    for channel, mask in ((2, on), (0, ~on)):
+        count = np.bincount(pixel[mask], minlength=width * height)
+        img[..., channel] = (np.minimum(count, saturation) * (255 / saturation)).astype(np.uint8).reshape(height, width)
+    return img
+
+
+EVENT_REPRESENTATIONS = {"tencode": "TEncode", "histogram": "Histogram"}
+
+
+def render_window(representation, evs, width, height, t_start, t_end):
+    """BGR frame of the events of (t_start, t_end] in one of EVENT_REPRESENTATIONS."""
+    if representation == "tencode":
+        return tencode_frame(evs, width, height, t_start, t_end)
+    if representation == "histogram":
+        return histogram_frame(evs, width, height)
+    raise ValueError(f"unknown event representation {representation!r}")
+
+
 def find_recordings(folder):
     """EventRecording for every raw file of a session sensor folder, sorted by start time."""
     return [EventRecording(p) for p in sorted(glob.glob(os.path.join(folder, "*.raw")))]

@@ -29,6 +29,13 @@
                     <option value="full">Full</option>
                 </select>
             </label>
+            <label class="toggle" title="How the events are drawn. TEncode: the newest event of each pixel, red ON / blue OFF, green the more recent it is. Histogram: number of events per pixel, red ON / blue OFF">Events
+                <select id="events" class="field">
+                    {% for key, label in representations.items() %}<option value="{{ key }}" {% if key == default_representation %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="toggle" title="Each event frame shows the events of this long before its time; every event is in one frame">
+                Accumulation <input type="number" id="acc-ms" class="field" min="{{ accumulation_range[0] }}" max="{{ accumulation_range[1] }}" step="1" value="{{ default_accumulation_ms }}"> ms</label>
             <label class="toggle" title="Lidar points of this long before the time shown (the Livox pattern fills in over time)">
                 Lidar <input type="number" id="lidar-ms" class="field" min="10" max="10000" step="10" value="100"> ms</label>
             <label class="toggle" id="warp-label" title="How the other cameras are reprojected on RGB left: through the lidar depth of each pixel (needs the RGB ↔ Livox calibration), or all at one distance">Warp
@@ -59,11 +66,11 @@
 
         <section class="panel" id="prepare-panel" hidden>
             <div class="panel-header">
-                <h2>Events not prepared</h2>
+                <h2 id="prepare-title">Events not prepared</h2>
                 <span class="message" id="prepare-message"></span>
             </div>
             <div class="progress-body">
-                <span class="muted">Event recordings are rendered once into frames (every 1/30 s) so they can be shown at any time; it takes about as long as the recording.</span>
+                <span class="muted">Event recordings are rendered once into frames (one per accumulation time) for each representation and accumulation time, so they can be shown at any time; it takes about as long as the recording.</span>
                 <div class="prepare-row">
                     <button id="prepare" class="btn-secondary">Prepare events</button>
                     <div class="progress"><div class="progress-fill" id="prepare-fill"></div></div>
@@ -93,7 +100,7 @@
                     </div>
                     {% endfor %}
                 </div>
-                <p class="muted layer-note">Lidar points: red near, blue far. Event pixels: white ON, blue OFF.</p>
+                <p class="muted layer-note">Lidar points: red near, blue far. Events: red ON, blue OFF (TEncode: more green = more recent).</p>
             </section>
         </div>
     </main>

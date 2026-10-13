@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const id of ['view', 'res', 'lidar-ms', 'depth', 'warp']) document.getElementById(id).addEventListener('change', settingsChanged);
     document.querySelectorAll('.layer-on, .layer-alpha').forEach(el => el.addEventListener('input', () => requestFrame()));
     document.getElementById('session').addEventListener('change', e => openSession(e.target.value));
+    for (const id of ['events', 'acc-ms']) document.getElementById(id).addEventListener('change', eventsChanged);
     document.getElementById('prepare').addEventListener('click', prepare);
     document.getElementById('save-session').addEventListener('click', () => keepOrDiscard('save'));
     document.getElementById('discard-session').addEventListener('click', () => {
@@ -43,6 +44,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ?session=<name>&t=<s from the start>&view=<view>: open that moment directly
     const url = new URLSearchParams(location.search);
+    if (url.get('events')) document.getElementById('events').value = url.get('events');
+    if (url.get('acc_ms')) document.getElementById('acc-ms').value = url.get('acc_ms');
     if (url.get('view')) {
         document.getElementById('view').value = url.get('view');
         settingsChanged();
@@ -96,7 +99,7 @@ async function openSession(name, offsetS = 0) {
     pause();
     const entry = sessions.find(s => s.name === name);
     document.getElementById('staging-panel').hidden = !entry || entry.place !== 'staging';
-    const response = await fetch(`${API}/session/${name}`);
+    const response = await fetch(`${API}/session/${name}?${eventParams()}`);
     session = await response.json();
     if (!response.ok || !session.range) {
         document.getElementById('placeholder').textContent = session.error || 'This session has no data';
@@ -114,13 +117,32 @@ async function openSession(name, offsetS = 0) {
     seek(session.range[0] + offsetS * 1e6);
 }
 
+// ?events=<representation>&acc_ms=<ms>: the event cache the frames come from
+function eventParams() {
+    return new URLSearchParams({
+        events: document.getElementById('events').value,
+        acc_ms: document.getElementById('acc-ms').value,
+    });
+}
+
+// Another representation or accumulation time: its own cache, prepared or not; same time shown
+async function eventsChanged() {
+    const acc = document.getElementById('acc-ms');
+    acc.value = Math.min(Math.max(Math.round(parseFloat(acc.value) || acc.defaultValue), acc.min), acc.max);
+    if (!session) return;
+    await openSession(session.name, (t - session.range[0]) / 1e6);
+}
+
 function showPrepare() {
     const needed = Object.values(session.has_raw).some(Boolean) && !session.events_prepared;
+    const events = document.getElementById('events');
+    document.getElementById('prepare-title').textContent =
+        `Events not prepared: ${events.options[events.selectedIndex].text}, ${document.getElementById('acc-ms').value} ms`;
     document.getElementById('prepare-panel').hidden = !needed;
 }
 
 async function prepare() {
-    const response = await fetch(`${API}/session/${session.name}/prepare`, {method: 'POST'});
+    const response = await fetch(`${API}/session/${session.name}/prepare?${eventParams()}`, {method: 'POST'});
     if (!response.ok) {
         document.getElementById('prepare-message').textContent = (await response.json()).error;
         return;
@@ -141,7 +163,7 @@ async function prepare() {
         await sleep(1000);
     }
     document.getElementById('prepare').disabled = false;
-    await openSession(session.name);
+    await openSession(session.name, (t - session.range[0]) / 1e6);
 }
 
 // ============================================================================
@@ -174,6 +196,7 @@ function frameUrl() {
         depth: document.getElementById('depth').value,
         warp: document.getElementById('warp').value,
         layers: JSON.stringify(layerAlphas()),
+        ...Object.fromEntries(eventParams()),
     });
     return `${API}/session/${session.name}/frame?${params}`;
 }

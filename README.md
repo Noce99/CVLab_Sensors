@@ -95,8 +95,16 @@ the Hesai). The other cameras (RGB right, events) are warped through the lidar d
 where the lidars see nothing (above / below their field of view, screens and glass that return no points);
 Warp = Plane puts everything at that distance. Without lidar depth, objects off the plane are shifted by
 their parallax (the event camera is ~4 cm from RGB left: ~70 px for something at 0.75 m with the plane at 5 m).
-Event recordings are rendered once into frames ("Prepare events", `<session>/replay_cache/`, about the
-recording's duration). `/replay?session=<name>&t=<s>&view=<sensor>` opens a moment directly.
+Events are drawn red (ON) and blue (OFF) on black, in one of two representations, over an accumulation
+time (20 ms by default, 1–1000 ms):
+- **TEncode** (default): the newest event of each pixel, its age in green (0 at the start of the window,
+  255 at its end: recent ON events look yellow, recent OFF events cyan);
+- **Histogram**: the number of events of each polarity per pixel (full intensity at 3 events).
+
+Event recordings are rendered once into frames, one per accumulation time, so every event is in exactly one
+frame ("Prepare events", `<session>/replay_cache/<representation>_<ms>ms/`, about the recording's duration);
+each representation and accumulation time is its own cache. `/replay?session=<name>&t=<s>&view=<sensor>`
+(plus `&events=<tencode|histogram>&acc_ms=<ms>`) opens a moment directly.
 Sessions marked "(not saved)" are still in `data/staging/` (recorded before the server restarted, so the
 Record page no longer knows them): the Replay page can **Save** them to `data/sessions/` or **Discard** them.
 
