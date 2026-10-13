@@ -30,6 +30,27 @@ def to_calibration_size(img, size=config.CALIBRATION_IMAGE_SIZE):
     return img
 
 
+def full_frame_intrinsics(K, full_size, size=config.CALIBRATION_IMAGE_SIZE):
+    """K of the image before to_calibration_size, from the K estimated on its output."""
+    width, height = size
+    w, h = full_size
+    target_ratio = width / height
+    x0 = y0 = 0
+    if w / h > target_ratio:
+        new_w, new_h = int(round(h * target_ratio)), h
+        x0 = (w - new_w) // 2
+    else:
+        new_w, new_h = w, int(round(w / target_ratio))
+        y0 = (h - new_h) // 2
+    sx, sy = width / new_w, height / new_h
+    K = np.array(K, dtype=np.float64)
+    full = K.copy()
+    full[0, 0], full[1, 1] = K[0, 0] / sx, K[1, 1] / sy
+    full[0, 2] = (K[0, 2] + 0.5) / sx - 0.5 + x0
+    full[1, 2] = (K[1, 2] + 0.5) / sy - 0.5 + y0
+    return full
+
+
 def pattern_points(pattern_size=config.PATTERN_SIZE, square_size_mm=config.SQUARE_SIZE_MM):
     """3D chessboard corners in mm, in the order of the detected corners."""
     points = np.zeros((np.prod(pattern_size), 3), np.float32)
@@ -115,15 +136,30 @@ def rectify_pair(img1, img2, maps1, maps2):
             cv2.remap(img2, maps2[0], maps2[1], cv2.INTER_LINEAR))
 
 
-def rectification_check_image(img1, img2, step=50):
-    """Side-by-side image with horizontal lines to eyeball a rectification."""
+def is_vertical_baseline(T):
+    """cv2.stereoRectify makes the epipolar lines vertical when the baseline is mostly vertical."""
+    T = np.ravel(T)
+    return abs(T[1]) > abs(T[0])
+
+
+def rectification_check_image(img1, img2, step=50, vertical=False):
+    """Two rectified images with lines to eyeball a rectification.
+
+    Horizontal baseline: side by side, corresponding points on the same row.
+    Vertical baseline (see is_vertical_baseline): stacked, corresponding points on the same column.
+    """
     if img1.ndim == 2:
         img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
     if img2.ndim == 2:
         img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
-    vis = np.hstack((img1, img2))
-    for y in range(0, vis.shape[0], step):
-        cv2.line(vis, (0, y), (vis.shape[1], y), (0, 255, 0), 1)
+    if vertical:
+        vis = np.vstack((img1, img2))
+        for x in range(0, vis.shape[1], step):
+            cv2.line(vis, (x, 0), (x, vis.shape[0]), (0, 255, 0), 1)
+    else:
+        vis = np.hstack((img1, img2))
+        for y in range(0, vis.shape[0], step):
+            cv2.line(vis, (0, y), (vis.shape[1], y), (0, 255, 0), 1)
     return vis
 
 

@@ -25,16 +25,24 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateStatus, 2000);
     loadSamples();
 
-    document.getElementById('capture').addEventListener('click', capture);
+    document.getElementById('capture').addEventListener('click', manualCapture);
+    document.getElementById('auto-capture').addEventListener('click', toggleAutoCapture);
     document.getElementById('show-coverage').addEventListener('change', drawAllOverlays);
+    document.getElementById('open-pattern').addEventListener('click', openPattern);
     document.addEventListener('keydown', e => {
         if (e.code === 'Space' && !e.repeat && e.target.tagName !== 'INPUT') {
             e.preventDefault();
-            capture();
+            manualCapture();
         }
     });
     window.addEventListener('resize', drawAllOverlays);
 });
+
+// Opens (or reloads with the new frequency) the blinking chessboard in its own window
+function openPattern() {
+    const hz = parseFloat(document.getElementById('blink-hz').value) || 10;
+    window.open(`/pattern?hz=${hz}`, 'blinking-pattern', 'popup,width=1280,height=800');
+}
 
 function buildCameraTiles() {
     const container = document.getElementById('cameras');
@@ -124,11 +132,15 @@ async function updateStatus() {
 // CAPTURE
 // ============================================================================
 
+let capturing = false;     // a capture request is in flight
+let autoCapture = false;   // automatic capture: a new capture every few seconds
+let autoTimer = null;
+
 async function capture() {
-    const button = document.getElementById('capture');
-    if (button.disabled) return;
-    button.disabled = true;
-    setMessage('Capturing…', '');
+    if (capturing) return;
+    capturing = true;
+    updateCaptureButtons();
+    if (!autoCapture) setMessage('Capturing…', '');
     try {
         const response = await fetch('/api/capture', {method: 'POST'});
         const result = await response.json();
@@ -138,8 +150,36 @@ async function capture() {
     } catch (error) {
         setMessage(`Capture failed: ${error.message}`, 'bad');
     } finally {
-        button.disabled = false;
+        capturing = false;
+        updateCaptureButtons();
+        scheduleAutoCapture();
     }
+}
+
+function manualCapture() {
+    if (!autoCapture) capture();
+}
+
+// The interval runs from the end of one capture to the start of the next, so captures never overlap
+function scheduleAutoCapture() {
+    clearTimeout(autoTimer);
+    if (!autoCapture || capturing) return;
+    const seconds = Math.max(0.2, parseFloat(document.getElementById('auto-interval').value) || 1);
+    autoTimer = setTimeout(capture, seconds * 1000);
+}
+
+function toggleAutoCapture() {
+    autoCapture = !autoCapture;
+    clearTimeout(autoTimer);
+    updateCaptureButtons();
+    if (autoCapture) capture();
+}
+
+function updateCaptureButtons() {
+    document.getElementById('capture').disabled = capturing || autoCapture;
+    const auto = document.getElementById('auto-capture');
+    auto.textContent = autoCapture ? 'Stop automatic capture' : 'Automatic capture';
+    auto.classList.toggle('active', autoCapture);
 }
 
 function showCapture(result) {
@@ -164,7 +204,7 @@ function showCapture(result) {
         setMessage(`Saved as board ${result.saved}` + (result.warning ? ` — ${result.warning}` : ''),
                    result.warning ? 'warn' : 'ok');
     } else if (result.moving) {
-        setMessage('All 4 saw the board, but not at the same moment and it moved in between: not saved, hold it still', 'warn');
+        setMessage('All 4 saw the board, but it moved during the capture: not saved, hold it still', 'warn');
     } else if (result.duplicate_of) {
         setMessage(`Detected in all 4, but too close to board ${result.duplicate_of}: not saved, move the board`, 'warn');
     } else {

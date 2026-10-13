@@ -172,3 +172,110 @@ main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 }
 .sample button.delete { color: var(--muted); border-left: 1px solid var(--border); }
 .sample button.delete:hover { color: var(--bad); }
+
+.pattern-launch { display: flex; gap: 8px; align-items: center; }
+.pattern-launch input {
+    width: 56px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px;
+    font: inherit;
+}
+.btn-secondary {
+    background: none;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-secondary:hover { border-color: var(--accent); }
+.btn-secondary.active { background: var(--bad); border-color: var(--bad); color: white; }
+
+/* calibrate_server.py */
+.field {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px;
+    font: inherit;
+    margin-left: 6px;
+    max-width: 60vw;
+}
+.progress-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.progress { height: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.progress-fill.ok { background: var(--ok); }
+.progress-fill.bad { background: var(--bad); }
+.progress-label { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+summary { cursor: pointer; }
+pre {
+    margin-top: 8px;
+    max-height: 240px;
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 12px;
+}
+pre:empty { display: none; }
+
+.result-stats { padding: 12px; }
+.table-title { font-size: 13px; padding: 12px 12px 6px; }
+.table-wrap { overflow-x: auto; padding: 0 12px; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.ok { color: var(--ok); }
+td.warn { color: var(--warn); }
+td.bad { color: var(--bad); }
+.result-images {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 0 12px 12px;
+}
+@media (max-width: 800px) {
+    .result-images { grid-template-columns: 1fr; }
+}
+.result-images img { width: 100%; display: block; border-radius: 4px; border: 1px solid var(--border); }
+.result-images figcaption { margin-top: 4px; }
+.blend-header { border-top: 1px solid var(--border); }
+.blend-header h3 { font-size: 13px; }
+.blend { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* The RGB image sets the size (the canvas is not 16:9), the event one lies on top */
+.blend-stage { position: relative; background: #000; border-radius: 4px; overflow: hidden; }
+.blend-stage img { display: block; width: 100%; }
+.blend-stage #blend-event { position: absolute; inset: 0; height: 100%; }
+.blend-slider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.blend-slider input { flex: 1; accent-color: var(--accent); }
+
+.rig-views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+@media (max-width: 1000px) {
+    .rig-views { grid-template-columns: 1fr; }
+}
+.rig-view { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.rig-view svg { width: 100%; display: block; }
+.rig-view figcaption { font-size: 12px; padding: 4px 6px 0; }
+.rig-link { stroke: var(--muted); stroke-dasharray: 4 3; stroke-width: 1; }
+.rig-distance, .rig-name, .rig-axes { fill: var(--text); font-size: 11px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.rig-axes { fill: var(--muted); font-size: 10px; text-anchor: end; }
+.rig-name { font-weight: 600; }
+.rig-scale { stroke: var(--text); stroke-width: 2; }
+.rig-cam.rgb { fill: var(--accent); }
+.rig-cam.event { fill: var(--warn); }
+.rig-cam.hollow { fill: var(--bg); stroke-width: 2; }
+.rig-cam.hollow.rgb { stroke: var(--accent); }
+.rig-cam.hollow.event { stroke: var(--warn); }
+.rig-axis { stroke-width: 2; fill: none; }
+.rig-axis.rgb { stroke: var(--accent); }
+.rig-axis.event { stroke: var(--warn); }
+.rig-arrow.rgb { fill: var(--accent); }
+.rig-arrow.event { fill: var(--warn); }
+.rig-table { padding-bottom: 12px; }

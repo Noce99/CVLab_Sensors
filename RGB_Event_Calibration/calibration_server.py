@@ -434,6 +434,13 @@ def index():
     return render_template("calibration.html")
 
 
+@app.route("/pattern")
+def blinking_pattern():
+    """Blinking chessboard to show on a screen: event cameras only see what changes."""
+    cols, rows = config.PATTERN_SIZE
+    return render_template("pattern.html", cols=cols, rows=rows)
+
+
 @app.route("/api/status")
 def status():
     sensors = {"rgb_left": rgb_cameras.status(0), "rgb_right": rgb_cameras.status(1)}
@@ -580,7 +587,8 @@ def choose_pairs(results):
     """Pick the candidate pair of every camera; results[cam][i] = (corners, variant, image).
 
     Returns ({cam: pair index}, mode):
-      "same"   the newest pair where all four cameras see the board
+      "same"   the newest pair where all four cameras see the board, and the RGB corners of the
+               other pairs agree within STILL_BOARD_PX (board still during the event window)
       "still"  a blinking screen is caught in a good phase at different moments by each camera:
                when the board is still (its corners agree within STILL_BOARD_PX in every camera
                that sees it in several pairs) each camera uses its newest detection
@@ -590,7 +598,14 @@ def choose_pairs(results):
     n = len(next(iter(results.values())))
     for i in range(n):
         if all(results[cam][i][0] is not None for cam in CAMERAS):
-            return {cam: i for cam in CAMERAS}, "same"
+            # The event frames integrate the events of up to 100 ms before the RGB exposure: a board
+            # moving in that time is in different places for RGB and events, which shows up as a
+            # wrong RGB <-> event extrinsics. The RGB corners of the other pairs (100 ms apart)
+            # tell whether it moved (the event corners are too noisy for this check).
+            moved = any(np.max(np.abs(results[cam][j][0] - results[cam][i][0])) > STILL_BOARD_PX
+                        for cam in ("rgb_left", "rgb_right") for j in range(n)
+                        if j != i and results[cam][j][0] is not None)
+            return {cam: i for cam in CAMERAS}, None if moved else "same"
     detections = {cam: [r[0] for r in results[cam] if r[0] is not None] for cam in CAMERAS}
     newest = {cam: next((i for i in range(n) if results[cam][i][0] is not None), 0) for cam in CAMERAS}
     repeated = [d for d in detections.values() if len(d) >= 2]

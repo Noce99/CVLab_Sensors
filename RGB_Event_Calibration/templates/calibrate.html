@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RGB-Event Calibrate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <h1>RGB-Event calibrate</h1>
+            <span class="muted">Boards from <code>processed_data/</code>, results in <code>calibration_results/</code></span>
+        </div>
+        <div class="actions">
+            <label class="toggle">Folder
+                <select id="folder" class="field"></select>
+            </label>
+            <label class="toggle" id="install-label"><input type="checkbox" id="install" checked> Install as current calibration</label>
+            <button id="run" class="btn-capture">Calibrate</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Progress</h2>
+                <span id="job-message" class="message"></span>
+            </div>
+            <div class="progress-body">
+                <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+                <div class="progress-label"><span id="progress-label" class="muted">Pick a folder and press Calibrate</span><span id="progress-pct" class="muted"></span></div>
+                <details>
+                    <summary class="muted">Log</summary>
+                    <pre id="log"></pre>
+                </details>
+            </div>
+        </section>
+
+        <section class="panel" id="results" hidden>
+            <div class="panel-header">
+                <h2>Results</h2>
+                <span class="muted"><code id="results-folder"></code></span>
+            </div>
+            <div class="stats result-stats">
+                <div class="stat"><span class="stat-value" id="n-found">-</span><span class="stat-label">boards found</span></div>
+                <div class="stat"><span class="stat-value" id="n-unique">-</span><span class="stat-label">unique</span></div>
+                <div class="stat"><span class="stat-value" id="n-used">-</span><span class="stat-label">used</span></div>
+            </div>
+
+            <h3 class="table-title">Intrinsics</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Camera</th><th>RMS px</th><th>Median view err</th><th>Max view err</th><th>fx</th><th>fy</th><th>cx</th><th>cy</th><th>Distortion (k1 k2 p1 p2 k3)</th></tr></thead>
+                    <tbody id="intrinsics"></tbody>
+                </table>
+            </div>
+
+            <h3 class="table-title">Extrinsics</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Pair</th><th>RMS px</th><th>T mm (x, y, z)</th><th>|T| mm</th><th>Rotation deg</th></tr></thead>
+                    <tbody id="extrinsics"></tbody>
+                </table>
+            </div>
+
+            <h3 class="table-title">Rectification checks <span class="muted">(first board; corresponding points on the same green line: rows for a side-by-side pair, columns for a stacked one. The overlay is shifted by the board parallax, so only the board must match)</span></h3>
+            <div class="result-images" id="images"></div>
+
+            <div class="panel-header blend-header">
+                <h3>RGB ↔ event</h3>
+                <span class="muted">Rectified left cameras, whole field of view of both, event shifted by the board parallax (black: not seen)</span>
+            </div>
+            <div class="blend">
+                <div class="blend-stage">
+                    <img id="blend-rgb" alt="RGB left">
+                    <img id="blend-event" alt="Event left">
+                </div>
+                <div class="blend-slider">
+                    <span>Event</span>
+                    <input type="range" id="blend-slider" min="0" max="100" value="50">
+                    <span>RGB</span>
+                </div>
+            </div>
+
+            <div class="panel-header blend-header">
+                <h3>Camera positions</h3>
+                <span class="muted">Optical centres in mm, origin at RGB left; arrows: viewing direction</span>
+            </div>
+            <div class="rig-views" id="rig-views"></div>
+            <div class="table-wrap rig-table">
+                <table>
+                    <thead><tr><th>From</th><th>To</th><th>Distance mm</th><th>Δx right</th><th>Δy up</th><th>Δz forward</th></tr></thead>
+                    <tbody id="rig-distances"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='calibrate.js') }}"></script>
+</body>
+</html>

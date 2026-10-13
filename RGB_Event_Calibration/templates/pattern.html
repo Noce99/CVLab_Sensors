@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blinking chessboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+    <style>
+        html, body { height: 100%; overflow: hidden; }
+        canvas { position: fixed; inset: 0; }
+        /* Toolbar fades out when the mouse stays still, so it does not cover the pattern */
+        header { position: fixed; left: 0; right: 0; transition: opacity .3s; }
+        header.hidden { opacity: 0; pointer-events: none; }
+        body.idle { cursor: none; }
+    </style>
+</head>
+<body>
+    <canvas id="pattern"></canvas>
+    <header id="toolbar">
+        <div class="title">
+            <h1>Blinking chessboard</h1>
+            <span class="muted">{{ cols }} &times; {{ rows }} inner corners &middot; <span id="fps">- fps</span></span>
+        </div>
+        <div class="actions">
+            <div class="pattern-launch">
+                <label class="toggle">Blink <input type="number" id="blink-hz" min="0.5" max="60" step="0.5"> Hz</label>
+                <span class="muted" id="actual-hz"></span>
+            </div>
+            <button id="pause" class="btn-secondary">Pause <kbd>Space</kbd></button>
+            <button id="fullscreen" class="btn-capture">Fullscreen <kbd>F</kbd></button>
+        </div>
+    </header>
+
+    <script>
+        // Chessboard alternating between the full pattern and a blank board, so
+        // that the event cameras see the squares. One blink = pattern + blank.
+        const COLS = {{ cols }};   // inner corners
+        const ROWS = {{ rows }};
+        const SQUARE_COLOR = 'black';
+        const BOARD_COLOR = 'white';
+        const BG_COLOR = 'rgb(127, 127, 127)';
+        const TOOLBAR_HIDE_MS = 2000;
+
+        const canvas = document.getElementById('pattern');
+        const ctx = canvas.getContext('2d');
+        const hzInput = document.getElementById('blink-hz');
+        const params = new URLSearchParams(window.location.search);
+        hzInput.value = parseFloat(params.get('hz')) || 10;
+
+        let running = true;
+        let showSquares = null;   // what is on the canvas now, null = needs redraw
+        let frameTimes = [];      // last rAF timestamps, to measure the display refresh rate
+
+        function draw(squares) {
+            const width = canvas.width = window.innerWidth;
+            const height = canvas.height = window.innerHeight;
+            const nCols = COLS + 1, nRows = ROWS + 1;   // squares
+            const step = Math.floor(Math.min(height / (nRows + 1), width / (nCols + 1)));
+            const x0 = Math.round((width - nCols * step) / 2);
+            const y0 = Math.round((height - nRows * step) / 2);
+
+            ctx.fillStyle = BG_COLOR;
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = BOARD_COLOR;
+            ctx.fillRect(x0, y0, nCols * step, nRows * step);
+            if (!squares) return;
+            ctx.fillStyle = SQUARE_COLOR;
+            for (let row = 0; row < nRows; row++)
+                for (let col = 0; col < nCols; col++)
+                    if (row % 2 === col % 2) ctx.fillRect(x0 + col * step, y0 + row * step, step, step);
+        }
+
+        function displayFps() {
+            if (frameTimes.length < 2) return 0;
+            return (frameTimes.length - 1) * 1000 / (frameTimes[frameTimes.length - 1] - frameTimes[0]);
+        }
+
+        function animate(t) {
+            frameTimes.push(t);
+            if (frameTimes.length > 61) frameTimes.shift();
+
+            // Phase from the clock, not a frame counter, so dropped frames do not change the frequency
+            const hz = parseFloat(hzInput.value) || 0;
+            const squares = !running || hz <= 0 || Math.floor(t * hz * 2 / 1000) % 2 === 0;
+            if (squares !== showSquares) {
+                draw(squares);
+                showSquares = squares;
+            }
+            requestAnimationFrame(animate);
+        }
+
+        function updateInfo() {
+            const fps = displayFps();
+            document.getElementById('fps').textContent = `${fps.toFixed(0)} fps display`;
+            const hz = parseFloat(hzInput.value) || 0;
+            // Each half period needs at least one frame
+            const note = document.getElementById('actual-hz');
+            note.textContent = fps && hz > fps / 2 ? `max ${(fps / 2).toFixed(0)} Hz at this refresh rate` : '';
+            note.className = note.textContent ? 'message warn' : 'muted';
+        }
+
+        function togglePause() {
+            running = !running;
+            document.getElementById('pause').firstChild.textContent = running ? 'Pause ' : 'Start ';
+        }
+
+        function toggleFullscreen() {
+            if (document.fullscreenElement) document.exitFullscreen();
+            else document.documentElement.requestFullscreen();
+        }
+
+        let hideTimer = null;
+        function showToolbar() {
+            document.getElementById('toolbar').classList.remove('hidden');
+            document.body.classList.remove('idle');
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+                if (document.activeElement === hzInput) return;
+                document.getElementById('toolbar').classList.add('hidden');
+                document.body.classList.add('idle');
+            }, TOOLBAR_HIDE_MS);
+        }
+
+        document.getElementById('pause').addEventListener('click', togglePause);
+        document.getElementById('fullscreen').addEventListener('click', toggleFullscreen);
+        hzInput.addEventListener('change', updateInfo);
+        document.addEventListener('mousemove', showToolbar);
+        document.addEventListener('keydown', e => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+            if (e.code === 'KeyF') toggleFullscreen();
+        });
+        window.addEventListener('resize', () => { showSquares = null; });
+
+        showToolbar();
+        setInterval(updateInfo, 1000);
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
