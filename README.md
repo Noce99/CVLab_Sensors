@@ -75,7 +75,11 @@ which breaks the `.sync.csv` mapping when a camera was opened before the recordi
 `get_data/data/`) along a timeline (play / pause, ×0.25–×4, frame steps, go to a time; Space and ←/→).
 Each sensor alone at its recorded resolution, or all of them on RGB left with the installed calibrations,
 one checkbox and alpha per sensor: lidar points land exactly (needs RGB ↔ Livox, and Livox ↔ Hesai for
-the Hesai), the other cameras are warped through a plane at a chosen distance. Event recordings are
+the Hesai). The other cameras (RGB right, events) are warped through the lidar depth of each RGB-left pixel
+(Warp = Lidar depth: the lidar points of the window, densified) and through a plane at the chosen distance
+where the lidars see nothing (above / below their field of view, screens and glass that return no points);
+Warp = Plane puts everything at that distance. Without lidar depth, objects off the plane are shifted by
+their parallax (the event camera is ~4 cm from RGB left: ~70 px for something at 0.75 m with the plane at 5 m). Event recordings are
 rendered once into frames ("Prepare events", `<session>/replay_cache/`, about the recording's duration).
 `/replay?session=<name>&t=<s>&view=<sensor>` opens a moment directly.
 

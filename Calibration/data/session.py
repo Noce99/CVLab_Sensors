@@ -31,6 +31,7 @@ EVENT_FRAME_US = 33_333           # one event frame per 1/30 s, events of that i
 CACHE_DIR = "replay_cache"
 GAP_US = {"rgb": 1_000_000, "event": 200_000, "lidar": 2_000_000}   # longer holes split the timeline bars
 MAX_RGB_OFFSET_US = 500_000       # an RGB frame further than this from the requested time is not shown
+RGB_SAME_EXPOSURE_US = 5_000      # see Session.rgb_frame
 MAX_EVENT_OFFSET_US = 100_000
 
 
@@ -157,11 +158,13 @@ class Session:
     # -- frames ---------------------------------------------------------------
 
     def rgb_frame(self, cam, t_us):
-        """(host_us, BGR full frame) of the newest frame at or before t (else the nearest), or None."""
+        """(host_us, BGR full frame) of the newest frame at or before t (else the nearest), or None.
+        Frames up to RGB_SAME_EXPOSURE_US after t count as at t: left and right expose together but
+        their timestamps differ by tens of us, and the previous frame is 100 ms older."""
         times = self.rgb[cam]
         if not times:
             return None
-        i = bisect.bisect_right(times, t_us) - 1
+        i = bisect.bisect_right(times, t_us + RGB_SAME_EXPOSURE_US) - 1
         if i < 0:
             i = 0
         if abs(times[i] - t_us) > MAX_RGB_OFFSET_US:

@@ -50,8 +50,10 @@ class Replay:
             self.rig, self.rig_stamp = views.Rig(), stamp
         return self.rig
 
-    def render(self, session, t, view, full_res, depth_m, lidar_ms, alphas):
-        """(BGR image, info) of the time t: info = {"times": {sensor: host_us}, "notes": {sensor: why not shown}}."""
+    def render(self, session, t, view, full_res, depth_m, lidar_ms, alphas, warp="lidar"):
+        """(BGR image, info) of the time t: info = {"times": {sensor: host_us}, "notes": {sensor: why not
+        shown}, "warp": how the other cameras were reprojected}. warp: "lidar" (per-pixel lidar depth,
+        depth_m where the lidars see nothing) or "plane" (everything at depth_m)."""
         times, notes = {}, {}
         window_us = int(lidar_ms * 1000)
         if view in RGB:
@@ -91,11 +93,22 @@ class Replay:
             notes.update({s: rig.missing.get(s, "no calibration") for s in SENSORS if s != "rgb_left"})
             return out, {"times": times, "notes": notes}
         depth_mm = depth_m * 1000
+        cameras = [s for s in ("rgb_right", "event_left", "event_right") if alphas.get(s, 0) > 0]
+        depth = depth_mm
+        info_warp = f"plane at {depth_m:g} m"
+        if cameras and warp == "lidar":
+            clouds = [(s, session.lidar_points(s, t, window_us)[0]) for s in LIDARS if s in rig.lidars]
+            clouds = [(s, xyz) for s, xyz in clouds if len(xyz)]
+            if clouds:
+                depth, coverage = rig.depth_map(clouds, size, depth_mm)
+                info_warp = (f"lidar depth ({' + '.join(s.capitalize() for s, _ in clouds)}) on {coverage:.0%} "
+                             f"of the image, plane at {depth_m:g} m elsewhere")
+            else:
+                why = rig.missing.get("livox") or "no lidar points in the window"
+                info_warp = f"plane at {depth_m:g} m (no lidar depth: {why})"
 
-        for sensor in ("rgb_right", "event_left", "event_right"):
-            alpha = alphas.get(sensor, 0)
-            if alpha <= 0:
-                continue
+        for sensor in cameras:
+            alpha = alphas[sensor]
             if sensor == "rgb_right":
                 frame = session.rgb_frame(sensor, t)
                 layer = None if frame is None else to_calibration_size(frame[1])
@@ -107,7 +120,7 @@ class Replay:
                                  else "no data near this time")
                 continue
             times[sensor] = frame[0]
-            warped, mask = rig.warp(sensor, layer, size, depth_mm)
+            warped, mask = rig.warp(sensor, layer, size, depth)
             if sensor in EVENTS:   # only the pixels with events, the grey background stays transparent
                 mask &= np.any(np.abs(warped.astype(np.int16) - EVENT_BACKGROUND) > 12, axis=2)
             views.blend(out, warped, mask, alpha)
@@ -129,7 +142,7 @@ class Replay:
             layer, mask = views.draw_points(out.shape, uv[order], views.depth_colours(depth[order]),
                                             dot=views.LIDAR_DOT_PX * (2 if full_res else 1))
             views.blend(out, layer, mask, alpha)
-        return out, {"times": times, "notes": notes}
+        return out, {"times": times, "notes": notes, "warp": info_warp if cameras else None}
 
 
 def blueprint(sensors, replay):
@@ -185,7 +198,8 @@ def blueprint(sensors, replay):
         if view != "overlay" and view not in SENSORS:
             return jsonify({"error": f"unknown view {view}"}), 400
         started = time.monotonic()
-        image, info = replay.render(session, t, view, args.get("res") == "full", depth_m, lidar_ms, alphas)
+        image, info = replay.render(session, t, view, args.get("res") == "full", depth_m, lidar_ms, alphas,
+                                    "plane" if args.get("warp") == "plane" else "lidar")
         if image is None:
             w, h = config.CALIBRATION_IMAGE_SIZE
             image = np.zeros((h, w, 3), np.uint8)

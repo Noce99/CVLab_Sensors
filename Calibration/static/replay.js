@@ -12,7 +12,7 @@ let pending = false;       // another render was asked meanwhile
 let lastFrameUrl = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    for (const id of ['view', 'res', 'lidar-ms', 'depth']) document.getElementById(id).addEventListener('change', settingsChanged);
+    for (const id of ['view', 'res', 'lidar-ms', 'depth', 'warp']) document.getElementById(id).addEventListener('change', settingsChanged);
     document.querySelectorAll('.layer-on, .layer-alpha').forEach(el => el.addEventListener('input', () => requestFrame()));
     document.getElementById('session').addEventListener('change', e => openSession(e.target.value));
     document.getElementById('prepare').addEventListener('click', prepare);
@@ -116,6 +116,7 @@ function settingsChanged() {
     const overlay = document.getElementById('view').value === 'overlay';
     document.getElementById('layers').hidden = !overlay;
     document.getElementById('depth-label').hidden = !overlay;
+    document.getElementById('warp-label').hidden = !overlay;
     requestFrame();
 }
 
@@ -135,6 +136,7 @@ function frameUrl() {
         res: document.getElementById('res').value,
         lidar_ms: document.getElementById('lidar-ms').value,
         depth: document.getElementById('depth').value,
+        warp: document.getElementById('warp').value,
         layers: JSON.stringify(layerAlphas()),
     });
     return `${API}/session/${session.name}/frame?${params}`;
@@ -175,7 +177,7 @@ function showFrameInfo(info) {
         }
     }
     document.getElementById('frame-info').textContent = parts.join(' · ') +
-        (info.size ? `  ·  ${info.size[0]}×${info.size[1]}` : '');
+        (info.size ? `  ·  ${info.size[0]}×${info.size[1]}` : '') + (info.warp ? `  ·  warp: ${info.warp}` : '');
     document.getElementById('render-ms').textContent = info.render_ms !== undefined ? `rendered in ${info.render_ms} ms` : '';
     document.querySelectorAll('.layer').forEach(row => {
         const s = row.dataset.sensor;

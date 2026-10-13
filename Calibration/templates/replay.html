@@ -31,8 +31,14 @@
             </label>
             <label class="toggle" title="Lidar points of this long before the time shown (the Livox pattern fills in over time)">
                 Lidar <input type="number" id="lidar-ms" class="field" min="10" max="10000" step="10" value="100"> ms</label>
-            <label class="toggle" id="depth-label" title="Other cameras are warped onto RGB left through a plane at this distance: exact there, parallax elsewhere">
-                Plane <input type="number" id="depth" class="field" min="0.5" max="200" step="0.5" value="5"> m</label>
+            <label class="toggle" id="warp-label" title="How the other cameras are reprojected on RGB left: through the lidar depth of each pixel (needs the RGB ↔ Livox calibration), or all at one distance">Warp
+                <select id="warp" class="field">
+                    <option value="lidar">Lidar depth</option>
+                    <option value="plane">Plane</option>
+                </select>
+            </label>
+            <label class="toggle" id="depth-label" title="Distance of the plane: used for everything with Warp = Plane, and where the lidars see nothing with Warp = Lidar depth (exact at that distance, parallax elsewhere)">
+                Plane <input type="number" id="depth" class="field" min="0.5" max="200" step="0.25" value="5"> m</label>
         </div>
     </header>
 

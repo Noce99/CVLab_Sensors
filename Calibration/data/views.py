@@ -3,8 +3,9 @@
 Reprojection uses the installed calibrations (cvlab.config.*_CALIBRATION_FILE):
   - lidar points are 3D: they land exactly on RGB-left (Livox through RGB <-> Livox, Hesai through
     Livox <-> Hesai then RGB <-> Livox);
-  - the other cameras' images have no depth: they are warped through a plane at a chosen distance
-    in front of RGB-left (exact for things at that distance, parallax elsewhere).
+  - the other cameras' images have no depth: they are warped onto RGB-left through the lidar depth
+    of each pixel (depth_map: the lidar points projected on RGB-left, densified), or through a plane
+    at a chosen distance where the lidars see nothing (exact at that distance, parallax elsewhere).
 Camera frames: x right, y down, z forward, mm. The distortion models are only used inside the
 radius where they are valid (rgb_event.solve.monotonic_radius): beyond it they fold back.
 """
@@ -22,6 +23,9 @@ from cvlab.calibration import full_frame_intrinsics, load_calibration
 from cvlab.lidar import MIN_DISTANCE_MM
 
 PANORAMA_WIDTH = 1440              # 0.25 deg per pixel
+DEPTH_CELL_PX = 4                  # the lidar depth map is built on cells of this size ...
+DEPTH_FILL_STEPS = 6               # ... and holes up to this many cells wide are filled
+WARP_STEP_PX = 2                   # depth warps are computed every this many pixels, then interpolated
 PANORAMA_ELEVATION = (-20.0, 20.0)  # deg, the XT32 sees -16..+15
 DEPTH_RANGE_MM = (500.0, 30000.0)  # colour scale of the lidar depth (log)
 LIDAR_DOT_PX = 2
@@ -148,10 +152,83 @@ class Rig:
         return maps
 
     def warp(self, sensor, image, size, depth_mm):
-        """(warped image, mask) of a calibration-size image of `sensor` on RGB-left."""
-        mx, my = self.warp_maps(sensor, size, depth_mm)
+        """(warped image, mask) of a calibration-size image of `sensor` on RGB-left. depth_mm: one
+        plane distance, or a depth map (H, W) of RGB-left (see depth_map)."""
+        if np.isscalar(depth_mm):
+            mx, my = self.warp_maps(sensor, size, depth_mm)
+        else:
+            mx, my = self.depth_warp_maps(sensor, size, depth_mm)
         out = cv2.remap(image, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         return out, mx >= 0
+
+    def rays(self, size, step):
+        """Undistorted normalized rays (h / step, w / step, 2) of RGB-left, cached. The samples are at
+        the centres of step x step blocks: where cv2.resize puts them when it brings maps back to size."""
+        key = ("rays", tuple(size), step)
+        with self.lock:
+            if key in self.maps:
+                return self.maps[key]
+        K, D = self.base(size)
+        w, h = size
+        centre = (step - 1) / 2
+        u, v = np.meshgrid(np.arange(-(-w // step), dtype=np.float32) * step + centre,
+                           np.arange(-(-h // step), dtype=np.float32) * step + centre)
+        rays = cv2.undistortPoints(np.stack([u, v], -1).reshape(-1, 1, 2), K, D).reshape(u.shape + (2,))
+        with self.lock:
+            self.maps[key] = rays
+        return rays
+
+    def depth_warp_maps(self, sensor, size, depth):
+        """remap maps sampling `sensor` for each RGB-left pixel through its depth (mm, (H, W))."""
+        K_s, D_s, R, T = self.cameras[sensor]
+        w, h = size
+        rays = self.rays(size, WARP_STEP_PX)
+        z = depth[::WARP_STEP_PX, ::WARP_STEP_PX][:rays.shape[0], :rays.shape[1]].astype(np.float64)
+        X = np.concatenate([rays * z[..., None], z[..., None]], axis=-1).reshape(-1, 3)
+        Xs = X @ R.T + T
+        zs = Xs[:, 2]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r2 = (Xs[:, 0] ** 2 + Xs[:, 1] ** 2) / zs ** 2
+        valid = (zs > MIN_DISTANCE_MM) & (r2 < monotonic_radius(D_s) ** 2)
+        uv = np.full((len(Xs), 2), -1, np.float32)
+        if valid.any():
+            p, _ = cv2.projectPoints(Xs[valid].reshape(-1, 1, 3), np.zeros(3), np.zeros(3), K_s, D_s)
+            uv[valid] = p.reshape(-1, 2)
+        mx, my = (uv[:, i].reshape(rays.shape[:2]) for i in (0, 1))
+        # Back to every pixel: linear between the samples; a pixel interpolated from an invalid sample
+        # (any of the samples around it) is invalid
+        full = lambda m, interpolation: cv2.resize(m, (w, h), interpolation=interpolation)
+        invalid = cv2.dilate((mx < 0).astype(np.uint8), np.ones((3, 3), np.uint8))
+        bad = full(invalid, cv2.INTER_NEAREST) > 0
+        mx, my = full(mx, cv2.INTER_LINEAR), full(my, cv2.INTER_LINEAR)
+        mx[bad], my[bad] = -1, -1
+        return mx, my
+
+    def depth_map(self, clouds, size, fallback_mm):
+        """(depth (H, W) mm, fraction from the lidars) of RGB-left: the lidar points [(sensor, xyz)]
+        projected (the nearest wins), background points seen between foreground ones removed, holes
+        up to DEPTH_FILL_STEPS cells filled from their neighbours; fallback_mm where no lidar sees."""
+        w, h = size
+        cw, ch = -(-w // DEPTH_CELL_PX), -(-h // DEPTH_CELL_PX)
+        zbuffer = np.full(cw * ch, np.inf)
+        for sensor, xyz in clouds:
+            uv, z = self.project_lidar(sensor, xyz, size)
+            if len(z):
+                np.minimum.at(zbuffer, (uv[:, 1] // DEPTH_CELL_PX) * cw + uv[:, 0] // DEPTH_CELL_PX, z)
+        depth = np.where(np.isinf(zbuffer), 0, zbuffer).astype(np.float32).reshape(ch, cw)
+        depth = lidar_image.clean_depth(depth, window=3)
+        for _ in range(DEPTH_FILL_STEPS):
+            valid = depth > 0
+            if valid.all():
+                break
+            count = cv2.boxFilter(valid.astype(np.float32), -1, (3, 3), normalize=False)
+            total = cv2.boxFilter(depth, -1, (3, 3), normalize=False)
+            fill = ~valid & (count > 0)
+            depth[fill] = total[fill] / count[fill]
+        coverage = float(np.mean(depth > 0))
+        depth = cv2.resize(depth, (cw * DEPTH_CELL_PX, ch * DEPTH_CELL_PX), interpolation=cv2.INTER_NEAREST)[:h, :w]
+        depth[depth <= 0] = fallback_mm
+        return depth, coverage
 
 
 def blend(base, layer, mask, alpha):
