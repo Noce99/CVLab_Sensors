@@ -76,15 +76,16 @@ async function updateStatus() {
         document.getElementById(`error-${output}`).textContent = s.running ? (s.error || '') : '';
         document.getElementById(`dot-${output}`).className = 'dot ' + (!s.running ? '' : s.error ? 'bad' : s.active ? 'ok' : 'warn');
     }
-    renderSettings(status.settings, running);
+    renderSettings(status.settings, status.settings_warnings, running);
     if (status.message) setMessage(status.message, 'warn');
 }
 
 // Settings the recorders use: changed from the defaults, older than the saved ones, not applied
-function renderSettings(settings, running) {
-    const lines = [];
-    for (const s of ['rgb', 'event'].map(group => settings[group])) {
-        const changed = s.changed.length ? s.changed.map(escapeHtml).join(', ') : 'defaults';
+function renderSettings(settings, warnings, running) {
+    const lines = warnings.map(w => `<div class="banner bad">⚠ ${escapeHtml(w)}</div>`);
+    for (const s of ['rgb', 'event', 'livox', 'hesai'].map(group => settings[group])) {
+        let changed = s.changed.length ? s.changed.map(escapeHtml).join(', ') : 'defaults';
+        if (s.kind === 'expected') changed = `expected ${changed} (checked, not sent)`;
         const at = s.saved_at ? ` <span class="muted">(saved ${s.saved_at.replace('T', ' ')})</span>` : '';
         lines.push(`<div><strong>${s.label}:</strong> ${changed}${at}</div>`);
         if (s.stale.length) {

@@ -449,12 +449,17 @@ body.has-timeline { padding-bottom: 175px; }
 }
 .badge.edited { background: rgba(76, 141, 255, 0.18); color: var(--accent); }
 .badge.pending { background: rgba(210, 153, 34, 0.2); color: var(--warn); }
+.badge.differs { background: rgba(248, 81, 73, 0.2); color: var(--bad); }
+.banner.hesai-note { margin: 12px 12px 0; }
+.banner.hesai-note .btn-secondary { margin-top: 6px; display: block; }
+.camera-error.ok { color: var(--ok); }
 .badge.geometry { background: rgba(176, 124, 240, 0.18); color: var(--lidar); }
 .message.edited { color: var(--accent); }
 .settings-previews { display: flex; flex-direction: column; gap: 12px; }
-.settings-previews .replay-stage { min-height: 120px; }
+.settings-previews .replay-stage:has(img:not([src])) { min-height: 120px; }
 .settings-previews .replay-stage img:not([src]) { display: none; }
 .settings-summary { display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 800px) {
     .data-tools { grid-template-columns: 1fr; }
 }
+.tool-status .none { color: var(--warn); }

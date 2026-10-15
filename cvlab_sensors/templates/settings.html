@@ -25,6 +25,7 @@
             <strong>Changes apply at the next start.</strong>
             Saving does not change a running sensor: each one uses the saved settings the next time it opens
             (next recording, next calibration capture, or the preview below once restarted).
+            The Hesai is the exception: this page never changes it, it only checks it.
         </div>
         <div id="banners"></div>
 
@@ -35,15 +36,31 @@
                     <h2>{{ label }}</h2>
                     <span class="muted" id="saved-at-{{ group }}"></span>
                 </div>
+                {% if kinds[group] == 'expected' %}
+                <p class="banner hesai-note">
+                    The Hesai keeps its settings in its own memory and this page never changes them: set them on its
+                    web page (<a href="{{ hesai_web_page }}" target="_blank">{{ hesai_web_page }}</a>) and save here the
+                    values you expect. Every page warns when the Hesai reports something else.
+                    <button class="btn-secondary" id="hesai-refresh">Read the Hesai again</button>
+                </p>
+                {% endif %}
                 <div class="settings-actions">
+                    {% if kinds[group] == 'expected' %}
+                    <button class="btn-capture" id="save-{{ group }}">Save expected values</button>
+                    {% else %}
                     <button class="btn-capture" id="save-{{ group }}">Save <span class="btn-note">applies at next start</span></button>
+                    {% endif %}
                     <button class="btn-secondary" id="discard-{{ group }}">Discard edits</button>
                     <button class="btn-secondary" id="reset-{{ group }}">Reset to defaults</button>
                     <span class="message" id="message-{{ group }}"></span>
                 </div>
                 <div class="settings-legend muted">
                     <span><span class="badge edited">unsaved</span> edited here, not saved</span>
-                    <span><span class="badge pending">applies at next start</span> saved, the camera still runs with the value shown</span>
+                    {% if kinds[group] == 'expected' %}
+                    <span><span class="badge differs">differs</span> the lidar reports something else than expected</span>
+                    {% else %}
+                    <span><span class="badge pending">applies at next start</span> saved, the sensor still runs with the value shown</span>
+                    {% endif %}
                 </div>
                 <ul class="settings-warnings" id="warnings-{{ group }}"></ul>
                 <div class="table-wrap">
@@ -51,7 +68,7 @@
                         <thead>
                             <tr>
                                 <th>Setting</th><th>Value</th><th>Default</th>
-                                {% for output in outputs[group] %}<th>{{ output_labels[output] }} runs with</th>{% endfor %}
+                                {% for output in outputs[group] %}<th>{{ output_labels[output] }} {{ 'reports' if kinds[group] == 'expected' else 'runs with' }}</th>{% endfor %}
                             </tr>
                         </thead>
                         <tbody id="fields-{{ group }}"></tbody>
@@ -76,6 +93,10 @@
                 {% endfor %}
                 <p class="muted">
                     {% if group == 'event' %}Newest 33 ms of events: ON white, OFF blue. The preview uses the live tools rate cap.
+                    {% elif group == 'livox' %}Reflectivity of the newest second of points, in the virtual camera of the RGB ↔ Livox calibration.
+                    {% elif group == 'hesai' %}Reflectivity of the newest revolution (0.1 s), 360° with forward in the middle.
+                    Settings read over the network every 30 s (and when you click "Read the Hesai again"), recording or not:
+                    changes made on its web page show in the preview right away.
                     {% else %}Live frames at the preview size (the recordings are full resolution).{% endif %}
                 </p>
             </section>
@@ -87,6 +108,7 @@
         const GROUPS = {{ groups | tojson }};
         const FIELDS = {{ fields | tojson }};
         const OUTPUTS = {{ outputs | tojson }};
+        const KINDS = {{ kinds | tojson }};
     </script>
     <script src="{{ url_for('static', filename='settings.js') }}"></script>
 </body>

@@ -15,6 +15,9 @@
     </header>
 
     <main>
+        {% for warning in settings_warnings %}
+        <div class="banner bad">⚠ {{ warning }} · <a href="/settings">Settings</a></div>
+        {% endfor %}
         <div class="tools data-tools">
             <a class="tool-card" href="/record">
                 <span class="tool-step">Data</span>
@@ -35,12 +38,12 @@
             <a class="tool-card" href="/settings">
                 <span class="tool-step">Sensors</span>
                 <span class="tool-name">Settings</span>
-                <span class="tool-desc">Frame cameras (ROI, frame rate, exposure, gain) and event cameras (rate cap, biases, filters, ROI). Saved changes apply at the next start of a sensor.</span>
+                <span class="tool-desc">Frame cameras (ROI, frame rate, exposure, gain), event cameras (rate cap, biases, filters, ROI) and Livox (scan pattern, dual emit, blind spot): saved changes apply at the next start of a sensor. The Hesai is checked, not changed.</span>
                 {% if stale %}
                 <span class="tool-status none">⚠ Recording with older settings: {{ stale | join(', ') }}. Saved changes apply to the next recording</span>
                 {% endif %}
                 <span class="tool-status">
-                    {% if n_changed %}{% for group, s in settings.items() if s.changed %}{{ s.label }}: {{ s.changed | length }} changed{% if not loop.last %} · {% endif %}{% endfor %}{% else %}All defaults{% endif %}
+                    {% if n_changed %}{% for group, s in settings.items() if s.changed %}{{ s.label }}: {{ s.changed | length }} changed{% if not loop.last %} · {% endif %}{% endfor %}{% if settings_warnings %} · <span class="none">{{ settings_warnings | length }} warning{{ '' if settings_warnings | length == 1 else 's' }}</span>{% endif %}{% else %}All defaults{% endif %}
                 </span>
             </a>
         </div>

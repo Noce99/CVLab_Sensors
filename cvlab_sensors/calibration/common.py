@@ -176,11 +176,10 @@ def load_calibration(path):
         calib = {k: data[k] for k in data.files}
     if "pipeline_version" not in calib:
         raise ValueError(f"{path} was made by the old calibration pipeline: recalibrate")
-    roi = tuple(float(x) for x in calib["rgb_roi_fraction"])
-    current = store.rgb_roi()
-    if not store.same_roi(roi, current):
-        raise ValueError(f"{path}: calibrated with RGB ROI {roi[0]:g} × {roi[1]:g}, the Settings page sets "
-                         f"{current[0]:g} × {current[1]:g}: recalibrate, or set the ROI back")
+    differ = store.geometry_differences(path)
+    if differ:
+        raise ValueError(f"{path}: made with other camera settings ({', '.join(differ)}): recalibrate, "
+                         "or set them back on the Settings page")
     return calib
 
 

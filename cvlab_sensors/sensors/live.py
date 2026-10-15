@@ -41,6 +41,7 @@ EVENT_WAIT_S = 1.0              # max wait for the events of the capture time to
 # Newest lidar points kept: must cover the longest capture plus the chunk delay.
 # ~21 B per point: Livox ~450 k points/s -> ~240 MB, Hesai ~1 M points/s -> ~520 MB
 LIDAR_BUFFER_S = 25
+SETTINGS_LIDAR_BUFFER_S = 1     # the settings page only shows the newest points
 LIDAR_POLL_S = 0.05
 STREAM_DIR = str(config.STREAM_DIR)   # recorder outputs, emptied as they are read
 
@@ -392,13 +393,17 @@ class EventCameraProcess:
 class LidarStream:
     """Runs a lidar recorder (lidar_recorders/save_point_cloud_{livox,hesai}) into STREAM_DIR/<name> and
     reads each H5 chunk (Livox 100 k points ~0.2 s, Hesai 300 k ~0.3 s) as soon as it is complete,
-    keeping the newest LIDAR_BUFFER_S of points in memory: camera-convention xyz (mm), intensity and
+    keeping the newest buffer_s of points in memory: camera-convention xyz (mm), intensity and
     host time (us)."""
 
-    def __init__(self, name, command):
+    def __init__(self, name, command, group=None):
         self.name = name
-        self.command = command   # folder -> recorder command line
+        self.command = command   # (folder, settings, report path) -> recorder command line
+        self.group = group       # settings group the recorder sends to the lidar, or None
+        self.settings = None     # its settings of the current opening
+        self.buffer_s = LIDAR_BUFFER_S   # seconds of points kept, of the current opening
         self.folder = os.path.join(STREAM_DIR, name)
+        self.report_path = os.path.join(STREAM_DIR, f"{name}_settings.json")   # what the lidar reports back
         self.lock = threading.Lock()
         self.batches = collections.deque()   # (t_first_us, t_last_us, xyz (N, 3) float32, intensity (N,), t_us (N,))
         self.process = None
@@ -408,13 +413,17 @@ class LidarStream:
         self.error = None
         self.rate = 0.0   # points / s
 
-    def start(self):
+    def start(self, buffer_s=LIDAR_BUFFER_S):
+        self.buffer_s = buffer_s
         shutil.rmtree(self.folder, ignore_errors=True)
         os.makedirs(self.folder)
         self.stopping.clear()
         self.error = "starting"
+        self.settings = store.load(self.group) if self.group else None
+        if os.path.exists(self.report_path):
+            os.remove(self.report_path)
         self.log = open(os.path.join(STREAM_DIR, f"{self.name}_recorder.log"), "ab")
-        command = [str(c) for c in self.command(self.folder)]
+        command = [str(c) for c in self.command(self.folder, self.settings, self.report_path)]
         # Own process group: we stop it with SIGINT and wait for it to flush, like cvlab_sensors.recording
         self.process = subprocess.Popen(command, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -439,6 +448,7 @@ class LidarStream:
         with self.lock:
             self.batches.clear()
         self.rate = 0.0
+        self.settings = None
         shutil.rmtree(self.folder, ignore_errors=True)
 
     def running(self):
@@ -474,7 +484,7 @@ class LidarStream:
                  chunk.intensity.astype(np.uint8), t_us)
         with self.lock:
             self.batches.append(batch)
-            while self.batches and self.batches[0][1] < batch[1] - LIDAR_BUFFER_S * 1_000_000:
+            while self.batches and self.batches[0][1] < batch[1] - self.buffer_s * 1_000_000:
                 self.batches.popleft()
         self.error = None
         return len(t_us)
@@ -492,6 +502,25 @@ class LidarStream:
         xyz, intensity, t = (np.concatenate(parts) for parts in zip(*(b[2:] for b in batches)))
         keep = (t >= t0_us) & (t <= t1_us)
         return xyz[keep], intensity[keep], t[keep]
+
+    def applied(self):
+        """Applied settings report (cvlab_sensors.settings.store.applied_report) of the lidar, the
+        readback once the recorder wrote it; None without settings or when closed."""
+        if self.group is None or self.settings is None:
+            return None
+        report = store.applied_report(self.group, self.settings)
+        readback = store.livox_readback(self.report_path)
+        if readback is not None:
+            report.update(readback)
+        return report
+
+    def latest_points(self, duration_s):
+        """(xyz, intensity) of the newest duration_s of points."""
+        latest = self.latest_us()
+        if latest is None:
+            return None
+        xyz, intensity, _ = self.points_between(latest - int(duration_s * 1e6), latest)
+        return xyz, intensity
 
     def status(self):
         latest = self.latest_us()
@@ -536,15 +565,17 @@ class SensorManager:
     event cameras takes several seconds)."""
 
     NEEDS = {"rgb_event": {"rgb", "event"}, "rgb_livox": {"rgb", "livox"}, "livox_hesai": {"livox", "hesai"},
-             "settings": {"rgb", "event"}, None: set()}
+             # Settings page: the sensors of the tab shown (the Hesai is only read over the network)
+             "settings_rgb": {"rgb"}, "settings_event": {"event"}, "settings_livox": {"livox"},
+             "settings_hesai": {"hesai"}, None: set()}
 
     def __init__(self):
         stop_stale_recorders()
         self.rgb = RgbCameras()
         self.event = {"event_left": EventCameraProcess(config.EVENT_LEFT_SERIAL),
                       "event_right": EventCameraProcess(config.EVENT_RIGHT_SERIAL)}
-        self.livox = LidarStream("livox", lambda folder: [config.LIVOX_RECORDER, folder, config.LIVOX_CONFIG])
-        self.hesai = LidarStream("hesai", lambda folder: [config.HESAI_RECORDER, folder, config.HESAI_IP])
+        self.livox = LidarStream("livox", store.livox_command, group="livox")
+        self.hesai = LidarStream("hesai", lambda folder, settings, report: [config.HESAI_RECORDER, folder, config.HESAI_IP])
         self.lock = threading.Lock()
         self.tool = None
         self.blocker = lambda: None   # -> why the sensors cannot be opened now (a recording runs), or None
@@ -571,16 +602,21 @@ class SensorManager:
             for cam in self.event.values():
                 if "event" not in needed or (cam.running() and cam.settings != store.load("event")):
                     cam.stop()
+            # A capture needs seconds of points, the settings preview only the newest ones
+            buffer_s = SETTINGS_LIDAR_BUFFER_S if (tool or "").startswith("settings") else LIDAR_BUFFER_S
             for lidar in ("livox", "hesai"):
-                if lidar not in needed and getattr(self, lidar).running():
-                    getattr(self, lidar).stop()
+                stream = getattr(self, lidar)
+                stale = (stream.group is not None and stream.settings != store.load(stream.group)) \
+                    or stream.buffer_s != buffer_s
+                if stream.running() and (lidar not in needed or stale):
+                    stream.stop()
             if self.rgb.running() and ("rgb" not in needed or self.rgb.settings != store.load("rgb")):
                 self.rgb.stop()
             if "rgb" in needed and not self.rgb.running():
                 self.rgb.start()
             for lidar in ("livox", "hesai"):
                 if lidar in needed and not getattr(self, lidar).running():
-                    getattr(self, lidar).start()
+                    getattr(self, lidar).start(buffer_s)
             if "event" in needed:
                 for cam in self.event.values():
                     if not cam.running():

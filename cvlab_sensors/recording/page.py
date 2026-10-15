@@ -51,8 +51,9 @@ def orphan_recorders_message():
 class Recording:
     """The recorders, the current session and the disk guard."""
 
-    def __init__(self):
-        self.groups = build_recorders()
+    def __init__(self, hesai_monitor=None):
+        self.hesai = hesai_monitor   # cvlab_sensors.sensors.hesai.HesaiMonitor
+        self.groups = build_recorders(hesai_monitor=hesai_monitor)
         self.recorders = [r for group in self.groups.values() for r in group]
         self.outputs = {out: r for r in self.recorders for out in r.outputs}
         self.lock = threading.Lock()
@@ -137,6 +138,7 @@ class Recording:
                                "outputs": [o for r in rs for o in r.outputs]} for g, rs in self.groups.items()},
                 "outputs": outputs, "message": self.message,
                 "settings": settings_page.summary(self),
+                "settings_warnings": settings_page.warnings(self),
                 "event_max_rate": _ev_s(store.load("event")["record_max_rate_mev"])}
 
     def preview(self, output):

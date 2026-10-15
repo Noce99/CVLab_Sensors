@@ -25,11 +25,13 @@ venv_3_12/bin/python -m cvlab_sensors          # from the repo root, then open h
 ```
 cvlab_sensors/             Python package: the web app and everything it uses
 ├── __main__.py, app.py    python -m cvlab_sensors: Flask app, home page, tool registry
-├── config.py              every setting: IPs, serials, exposure, paths, calibration parameters
+├── config.py              IPs, serials, paths, calibration parameters, and the defaults of the sensor settings
+├── settings/              Settings page (page.py) and the saved sensor settings (store.py, data/settings/active.json)
 ├── web.py                 shared page code: image helpers, background jobs, capture / solve routes
 ├── status.py              status JSON and preview files written by the recorders
 ├── sensors/               sensor I/O
 │   ├── basler.py, evk4.py     camera settings (Basler pair, EVK4)
+│   ├── hesai.py               Hesai settings, read over its PTC protocol (never written)
 │   ├── events.py, lidar.py    readers of the recorded event (.raw) and lidar (.h5) files
 │   ├── timesync.py            device clock -> host clock mapping
 │   └── live.py                SensorManager: live sensors for the calibration capture pages
@@ -170,8 +172,8 @@ journalctl -u ptp4l-cvlab -f
   store `sync` pairs, and `cvlab_sensors.sensors.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
 - **Event cameras** (USB) are not on PTP: their clock is mapped to the host clock through the
   `*.sync.csv` file written next to each recording. For exact RGB-event sync, wire a Basler output
-  line (LineSource = ExposureActive) into the EVK4 trigger input and set `EVENT_TRIGGER_IN = True`
-  in `cvlab_sensors/config.py`.
+  line (LineSource = ExposureActive) into the EVK4 trigger input and turn on "Trigger input" on the
+  Settings page.
 
 ## SDKs
 ### Lidar recorders

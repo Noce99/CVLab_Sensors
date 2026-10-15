@@ -13,6 +13,7 @@ Translations are in mm.
 """
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -277,6 +278,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         pipeline_version=PIPELINE_VERSION,
         calibration_image_size=np.array(image_size),
         rgb_roi_fraction=np.array(store.rgb_roi()),
+        settings_geometry=json.dumps(store.geometry()),   # checked against the settings when loaded
         pattern_size=np.array(config.PATTERN_SIZE),
         square_size_mm=square_mm,
         n_boards=len(samples),

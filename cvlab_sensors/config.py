@@ -39,7 +39,7 @@ EVENT_RECORDER = "cvlab_sensors.recording.event_recorder"
 LIDAR_RECORDERS_DIR = REPO_ROOT / "lidar_recorders"
 LIVOX_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_livox"
 HESAI_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_hesai"
-LIVOX_CONFIG = LIDAR_RECORDERS_DIR / "livox_hap.json"
+LIVOX_CONFIG = LIDAR_RECORDERS_DIR / "livox_hap.json"   # network only: the SDK does not send its lidar_configs (scan pattern... are Settings page values)
 RESET_EVENT_CAMERAS_SCRIPT = REPO_ROOT / "system" / "reset_event_cameras.sh"
 
 # Recording stops automatically when the staging disk has less free space than this

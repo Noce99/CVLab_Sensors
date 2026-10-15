@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from cvlab_sensors import config
+from cvlab_sensors.sensors import hesai
+from cvlab_sensors.settings import store
 from cvlab_sensors.status import RateCounter, read_json
 
 # A sensor is considered stalled when its newest output is older than this
@@ -190,10 +192,33 @@ def python_recorder(module, *args):
     return lambda session: [config.PYTHON, "-u", "-m", module, session, *args]
 
 
-def build_recorders(allow_unsynced=False):
+def livox_recorder(session):
+    """Livox recorder command; records in the session the settings it sends, and has the recorder
+    write what the lidar reports back next to them (store.read_applied merges both)."""
+    values = store.load("livox")
+    store.write_applied(session, "lidar_livox", store.applied_report("livox", values))
+    return store.livox_command(session / "lidar_livox", values, session / "settings" / "lidar_livox.readback.json")
+
+
+def hesai_recorder(monitor):
+    """Hesai recorder command; records in the session the settings the Hesai reports at start, with
+    the expected ones (it keeps its settings itself: nothing is sent)."""
+    def command(session):
+        result = monitor.refresh() if monitor is not None else {"readback": None, "error": "not read"}
+        readback = result["readback"] or {}
+        notes = hesai.problems(readback) + ([result["error"]] if result["error"] else [])
+        notes += [f"{label} is {reported}, expected {expected}: change it on {store.HESAI_WEB_PAGE}"
+                  for label, reported, expected in store.hesai_mismatches(readback)]
+        store.write_applied(session, "lidar_hesai", store.applied_report("hesai", store.load("hesai"), readback, notes))
+        return [config.HESAI_RECORDER, session / "lidar_hesai", config.HESAI_IP]
+    return command
+
+
+def build_recorders(allow_unsynced=False, hesai_monitor=None):
     """All recorders, grouped the way the dashboard controls them.
 
     allow_unsynced: record RGB even if the cameras are not PTP synchronized.
+    hesai_monitor: cvlab_sensors.sensors.hesai.HesaiMonitor, to record the Hesai settings.
     """
     rgb_args = ["--allow-unsynced"] if allow_unsynced else []
     return {
@@ -208,14 +233,10 @@ def build_recorders(allow_unsynced=False):
                      python_recorder(config.EVENT_RECORDER, "--right-camera"), writes_status_json=True),
         ],
         "lidar_livox": [
-            Recorder("lidar_livox", ["lidar_livox"],
-                     lambda s: [config.LIVOX_RECORDER, s / "lidar_livox", config.LIVOX_CONFIG],
-                     writes_status_json=False),
+            Recorder("lidar_livox", ["lidar_livox"], livox_recorder, writes_status_json=False),
         ],
         "lidar_hesai": [
-            Recorder("lidar_hesai", ["lidar_hesai"],
-                     lambda s: [config.HESAI_RECORDER, s / "lidar_hesai", config.HESAI_IP],
-                     writes_status_json=False),
+            Recorder("lidar_hesai", ["lidar_hesai"], hesai_recorder(hesai_monitor), writes_status_json=False),
         ],
     }
 

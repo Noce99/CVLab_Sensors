@@ -1,7 +1,8 @@
 // Settings page: edit, validate and save the sensor settings; show what every camera runs with.
-// GROUPS ([[group, label]]), FIELDS ({group: [field]}), OUTPUTS ({group: [output]}) are set by settings.html.
-// Three states per field: edited here (unsaved), saved but not used by a running camera yet
-// (applies at next start), in use.
+// GROUPS ([[group, label]]), FIELDS ({group: [field]}), OUTPUTS ({group: [output]}), KINDS ({group: "apply" or
+// "expected"}) are set by settings.html. Three states per field: edited here (unsaved), saved but not used by
+// a running sensor yet (applies at next start), in use. "expected" groups (the Hesai) are never sent to the
+// sensor: their values are compared with what it reports (differs).
 
 const API = '/settings/api';
 const PREVIEW_MS = 500;
@@ -23,6 +24,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         document.getElementById(`reset-${group}`).addEventListener('click', () => reset(group));
     }
+    const hesaiRefresh = document.getElementById('hesai-refresh');
+    if (hesaiRefresh) hesaiRefresh.addEventListener('click', async () => {
+        hesaiRefresh.disabled = true;
+        await postJson('hesai/refresh', {});
+        await updateStatus();
+        hesaiRefresh.disabled = false;
+    });
     for (const tab of document.querySelectorAll('.tab')) {
         tab.addEventListener('click', () => showGroup(tab.dataset.group));
     }
@@ -43,10 +51,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
+// Show a tab and open its sensors (the server closes the others)
 function showGroup(group) {
     for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.group === group);
     for (const [g] of GROUPS) document.getElementById(`group-${g}`).hidden = g !== group;
     try { localStorage.setItem('settings-tab', group); } catch (e) {}
+    postJson('use', {group});
 }
 
 // ============================================================================
@@ -163,11 +173,16 @@ function runningCell(group, output, f) {
     const values = entry.report.values || {};
     if (!applies(f, values) && !applies(f, saved[group] || {})) return '<span class="muted">–</span>';
     const readback = (entry.report.readback || {})[f.key];
+    if (KINDS[group] === 'expected') {
+        if (readback === undefined) return '<span class="muted">not reported</span>';
+        const differs = saved[group] && !same(readback, saved[group][f.key]);
+        return `${formatValue(f, readback)}${differs ? ' <span class="badge differs">differs</span>' : ''}`;
+    }
     let shown = formatValue(f, values[f.key]);
     let note = '';
     if (readback !== undefined && readback !== null && !same(readback, values[f.key])) {
         // The camera reports something else: its default for an empty field, or a clamped value
-        note = values[f.key] === null || values[f.key] === undefined
+        note = values[f.key] === null || values[f.key] === undefined || values[f.key] === 'unchanged'
             ? ` <span class="muted">(${formatValue(f, readback)})</span>`
             : ` <span class="readback" title="Value the camera reports">camera: ${formatValue(f, readback)}</span>`;
     }
@@ -203,12 +218,14 @@ async function save(group) {
     showWarnings(group, result.data.warnings);
     await updateStatus();
     const open = OUTPUTS[group].some(o => status.outputs[o].state !== 'closed');
-    setMessage(group, open ? 'Saved. Not active yet: it applies at the next start of the cameras (see the banner above).'
-                           : 'Saved. It applies the next time the cameras open.', 'warn');
+    if (KINDS[group] === 'expected') setMessage(group, 'Expected values saved. Nothing was sent to the lidar.', 'ok');
+    else setMessage(group, open ? 'Saved. Not active yet: it applies at the next start of the sensors (see the banner above).'
+                                : 'Saved. It applies the next time the sensors open.', 'warn');
 }
 
 async function reset(group) {
-    if (!confirm('Reset every setting of this group to its default? (applies at next start)')) return;
+    if (!confirm(KINDS[group] === 'expected' ? 'Reset the expected values to their defaults?'
+                                             : 'Reset every setting of this group to its default? (applies at next start)')) return;
     const result = await postJson('reset', {group});
     if (!result.ok) { setMessage(group, result.data.error, 'bad'); return; }
     saved[group] = {...result.data.values};
@@ -217,7 +234,8 @@ async function reset(group) {
     renderFields(group);
     validate(group);
     await updateStatus();
-    setMessage(group, 'Defaults saved. They apply at the next start of the cameras.', 'warn');
+    setMessage(group, KINDS[group] === 'expected' ? 'Default expected values saved. Nothing was sent to the lidar.'
+                                                  : 'Defaults saved. They apply at the next start of the sensors.', 'warn');
 }
 
 // ============================================================================
@@ -253,6 +271,12 @@ async function updateStatus() {
 
 function renderBanners() {
     const banners = [];
+    // Settings that break the data whatever the tab: shown first, in red
+    const problems = [...status.hesai.warnings, ...status.calibration];
+    if (problems.length) {
+        banners.push(`<div class="banner bad"><strong>⚠ Check before recording:</strong>
+            <ul>${problems.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul></div>`);
+    }
     if (status.locked) {
         banners.push(`<div class="banner bad"><strong>Read-only:</strong> ${escapeHtml(status.locked)}.
             The recording uses the settings saved when it started; stop it on the <a href="/record">Record page</a> to edit.</div>`);
@@ -275,9 +299,11 @@ function renderBanners() {
         banners.push(`<div class="banner muted-banner">Opening ${opening.map(e => e.label).join(', ')}…
             (event cameras take a few seconds each)</div>`);
     }
-    const notes = Object.values(status.outputs).flatMap(e => (e.report && e.report.notes || []).map(n => `${e.label}: ${n}`));
+    // (the Hesai problems are in the red banner)
+    const notes = Object.values(status.outputs).filter(e => e.group !== 'hesai')
+        .flatMap(e => (e.report && e.report.notes || []).map(n => `${e.label}: ${n}`));
     if (notes.length) {
-        banners.push(`<div class="banner pending"><strong>The cameras could not apply everything as saved:</strong>
+        banners.push(`<div class="banner pending"><strong>The sensors could not apply everything as saved:</strong>
             <ul>${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul></div>`);
     }
     const html = banners.join('');
@@ -299,6 +325,19 @@ async function restartPreview() {
 }
 
 function renderCamera(output, entry) {
+    if (entry.group === 'hesai') {
+        const rate = status.rates[output];
+        const read = status.hesai.read_at ? `settings read ${status.hesai.read_at.replace('T', ' ').slice(11)}` : '';
+        document.getElementById(`rate-${output}`).textContent = [rate ? `${rate.rate} ${rate.unit}` : '', read]
+            .filter(Boolean).join(' · ');
+        const state = document.getElementById(`state-${output}`);
+        const differs = status.hesai.warnings.length;
+        state.textContent = status.hesai.error || (differs ? 'Differs from the expected values: see the banner above'
+                                                           : 'Matches the expected values');
+        state.className = 'camera-error' + (status.hesai.error || differs ? '' : ' ok');
+        document.getElementById(`dot-${output}`).className = 'dot ' + (status.hesai.error ? 'warn' : differs ? 'bad' : 'ok');
+        return;
+    }
     const rate = status.rates[output];
     const size = entry.report && entry.report.readback && entry.report.readback.size;
     document.getElementById(`rate-${output}`).textContent = rate && entry.state === 'open'
@@ -320,7 +359,9 @@ async function previewLoop(output) {
     const placeholder = document.getElementById(`placeholder-${output}`);
     while (true) {
         const visible = !document.getElementById(`live-${output}`).closest('.settings-layout').hidden;
-        if (!status || !status.preview || !visible || status.outputs[output].where !== 'Settings preview') {
+        // Streamed by the page (the rates come from the live sensors; a recording has its own previews)
+        const streamed = status && status.rates[output] && status.outputs[output].where !== 'Record page';
+        if (!status || !status.preview || !visible || !streamed) {
             placeholder.style.display = '';
             placeholder.textContent = status && status.locked ? 'Recording: see the Record page' : 'Not open';
             img.removeAttribute('src');

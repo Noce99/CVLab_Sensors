@@ -4,7 +4,7 @@ Usage: python -m cvlab_sensors [--port 5001]   (from the repo root)
 Open http://<NUC_IP>:5001 and pick a tool:
   - Record                            the recorders of every sensor, save / discard the session
   - Replay                            recorded sessions on a timeline, sensors alone or on RGB left
-  - Settings                          frame and event camera settings, applied when a sensor opens
+  - Settings                          camera and Livox settings applied when a sensor opens, Hesai checked
   - Get RGB-event calibration data    live capture of the chessboard in the 2 Basler + 2 EVK4
   - Calibrate RGB <-> event           intrinsics + extrinsics of the four cameras
   - Get RGB-Livox calibration data    live capture of the chessboard in RGB-left + Livox reflectivity
@@ -36,6 +36,7 @@ from cvlab_sensors.calibration.rig import installed_rig
 from cvlab_sensors.recording import page as record
 from cvlab_sensors.replay import page as replay
 from cvlab_sensors.settings import page as settings_page
+from cvlab_sensors.sensors.hesai import HesaiMonitor
 from cvlab_sensors.sensors.live import SensorManager
 
 SOLVERS = {
@@ -81,7 +82,7 @@ def create_app():
     processes are spawned, and a spawned process imports this module again."""
     app = Flask(__name__)
     sensors = SensorManager()
-    recording = record.Recording()
+    recording = record.Recording(HesaiMonitor())
     # A sensor can be opened by one program: no calibration capture while a recording runs
     sensors.blocker = lambda: "a recording is running: stop it on the Record page first" if recording.any_running() else None
 
@@ -109,6 +110,7 @@ def create_app():
         return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS},
                                rig=installed_rig(), recording=recording.status(),
                                settings=settings_page.summary(recording),
+                               settings_warnings=settings_page.warnings(recording),
                                n_sessions=len(replay.find_sessions()))
 
     @app.route("/pattern")

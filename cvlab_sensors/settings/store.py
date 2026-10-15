@@ -4,10 +4,14 @@ A sensor reads them when it opens: a saved change applies the next time the sens
 recording, calibration capture or settings preview), never to a running sensor. Whatever opens a
 sensor reports what it applied (see write_applied), so the pages can tell running from saved values.
 
+The Hesai keeps its settings in its own memory and this tool never writes them: its group holds the
+values we expect, compared with what the lidar reports (hesai_mismatches).
+
 The file keeps only the values that differ from the defaults, in one profile ("active"): presets
 can be added later as more profiles.
 """
 
+import json
 import os
 from datetime import datetime
 
@@ -20,10 +24,15 @@ FORMAT_VERSION = 1
 PROFILE = "active"
 GIGE_MAX_MB_S = 110   # usable payload of one 1 GbE camera link
 
-GROUPS = {"rgb": "Frame cameras (Basler)", "event": "Event cameras (EVK4)"}
-# Every camera of a group uses the group's settings (a stereo pair must match)
-GROUP_OUTPUTS = {"rgb": ["rgb_left", "rgb_right"], "event": ["event_left", "event_right"]}
-OUTPUT_LABELS = {"rgb_left": "RGB left", "rgb_right": "RGB right", "event_left": "Event left", "event_right": "Event right"}
+GROUPS = {"rgb": "Frame cameras (Basler)", "event": "Event cameras (EVK4)", "livox": "Livox HAP", "hesai": "Hesai XT32"}
+# "apply": sent to the sensor when it opens. "expected": only compared with what the sensor reports
+GROUP_KIND = {"rgb": "apply", "event": "apply", "livox": "apply", "hesai": "expected"}
+# Every sensor of a group uses the group's settings (a stereo pair must match)
+GROUP_OUTPUTS = {"rgb": ["rgb_left", "rgb_right"], "event": ["event_left", "event_right"],
+                 "livox": ["lidar_livox"], "hesai": ["lidar_hesai"]}
+OUTPUT_LABELS = {"rgb_left": "RGB left", "rgb_right": "RGB right", "event_left": "Event left", "event_right": "Event right",
+                 "lidar_livox": "Livox", "lidar_hesai": "Hesai"}
+HESAI_WEB_PAGE = f"http://{config.HESAI_IP}"
 EVENT_BIASES = ["bias_diff_on", "bias_diff_off", "bias_fo", "bias_hpf", "bias_refr"]
 
 
@@ -86,13 +95,14 @@ FIELDS = {
               "Event rate", "Mev/s", 1, 200, 1, optional=True,
               help="The same for the calibration captures and the preview on this page, which cannot "
                    "render more than ~20 Mev/s live. Empty = no cap"),
-        *[field(name, name, "int", None, "Biases", "", -1000, 1000, 1, optional=True,
-                help=help + ". Empty = camera default")
-          for name, help in [("bias_diff_on", "ON contrast threshold: higher = fewer ON events"),
-                             ("bias_diff_off", "OFF contrast threshold: higher = fewer OFF events"),
-                             ("bias_fo", "Photoreceptor low-pass filter"),
-                             ("bias_hpf", "High-pass filter"),
-                             ("bias_refr", "Refractory period (dead time after an event)")]],
+        # Ranges reported by both EVK4s (IMX636) on 2026-10-15; the camera default is 0
+        *[field(name, name, "int", None, "Biases", "", low, high, 1, optional=True,
+                help=help + ". Empty = camera default (0)")
+          for name, low, high, help in [("bias_diff_on", -150, 200, "ON contrast threshold: higher = fewer ON events"),
+                                        ("bias_diff_off", -150, 200, "OFF contrast threshold: higher = fewer OFF events"),
+                                        ("bias_fo", -150, 200, "Photoreceptor low-pass filter"),
+                                        ("bias_hpf", 0, 255, "High-pass filter"),
+                                        ("bias_refr", -50, 255, "Refractory period (dead time after an event)")]],
         field("antiflicker", "Anti-flicker", "bool", False, "Filters",
               help="Hardware filter of flickering lights (100 Hz under 50 Hz mains)"),
         field("antiflicker_mode", "Anti-flicker mode", "choice", "BandStop", "Filters",
@@ -114,6 +124,26 @@ FIELDS = {
         field("roi_height", "ROI height", "int", 720, "Region of interest", "px", 1, 720, 1, when=["roi", True]),
         field("trigger_in", "Trigger input", "bool", config.EVENT_TRIGGER_IN, "Trigger",
               help="Record the EVK4 trigger input (MAIN channel), e.g. wired to a Basler ExposureActive line"),
+    ],
+    # The HAP keeps these in its memory too: they are sent at every start anyway. Measured on 2026-10-15:
+    # non-repetitive, dual emit off, blind spot 50 cm. It has no FoV window nor frame rate setting.
+    "livox": [
+        field("scan_pattern", "Scan pattern", "choice", "non_repetitive", "Scan",
+              choices=[["non_repetitive", "Non-repetitive"], ["repetitive", "Repetitive"],
+                       ["repetitive_low_rate", "Repetitive, low frame rate"]],
+              help="Non-repetitive fills the field of view over time (the RGB ↔ Livox capture waits for it)"),
+        field("dual_emit", "Dual emit", "bool", False, "Scan", help="Two returns per laser shot: about twice the points"),
+        field("blind_spot_cm", "Blind spot", "int", 50, "Scan", "cm", 50, 200, 1,
+              help="Points closer than this are dropped"),
+    ],
+    # Measured on 2026-10-15: 600 rpm, dual return, 0–360°
+    "hesai": [
+        field("spin_rpm", "Spin rate", "choice", "600", "Scan",
+              choices=[["600", "10 Hz (600 rpm)"], ["1200", "20 Hz (1200 rpm)"]]),
+        field("return_mode", "Return mode", "choice", "dual", "Scan",
+              choices=[["last", "Last"], ["strongest", "Strongest"], ["dual", "Dual (last + strongest)"]]),
+        field("fov_start_deg", "FoV start", "number", 0.0, "Field of view", "°", 0, 360, 0.1),
+        field("fov_stop_deg", "FoV stop", "number", 360.0, "Field of view", "°", 0, 360, 0.1),
     ],
 }
 FIELD_BY_KEY = {group: {f["key"]: f for f in fields} for group, fields in FIELDS.items()}
@@ -229,7 +259,7 @@ def validate(group, values):
             except ValueError as e:
                 errors[f["key"]] = str(e)
     warnings = []
-    if not errors:
+    if not errors and group in ("rgb", "event"):
         (_validate_rgb if group == "rgb" else _validate_event)(clean, errors, warnings)
     return clean, errors, warnings
 
@@ -260,13 +290,7 @@ def _validate_rgb(v, errors, warnings):
                         f"carries (~{GIGE_MAX_MB_S} MB/s): frames will be missed. Lower the frame rate or the ROI.")
     if not v["ptp_trigger"]:
         warnings.append("PTP trigger off: left and right expose at different instants (not synchronized).")
-    roi = (v["roi_width"], v["roi_height"])
-    for name, path in [("RGB ↔ event", config.RGB_EVENT_CALIBRATION_FILE), ("RGB ↔ Livox", config.RGB_LIVOX_CALIBRATION_FILE)]:
-        calibrated = calibrated_rgb_roi(path)
-        if calibrated is not None and not same_roi(calibrated, roi):
-            warnings.append(f"The installed {name} calibration was made with the RGB ROI "
-                            f"{calibrated[0]:g} × {calibrated[1]:g}, these settings use {roi[0]:g} × {roi[1]:g}: "
-                            "replay overlays and the tools that use it will refuse it until you recalibrate.")
+    warnings += calibration_mismatches({"rgb": v})
 
 
 def _validate_event(v, errors, warnings):
@@ -289,6 +313,11 @@ def _validate_event(v, errors, warnings):
 # CALIBRATION GEOMETRY
 # ============================================================================
 
+# Installed calibrations and the settings groups whose geometry they depend on
+CALIBRATIONS = [("RGB ↔ event", config.RGB_EVENT_CALIBRATION_FILE, ["rgb"]),
+                ("RGB ↔ Livox", config.RGB_LIVOX_CALIBRATION_FILE, ["rgb"])]
+
+
 def rgb_roi():
     values = load("rgb")
     return values["roi_width"], values["roi_height"]
@@ -298,15 +327,59 @@ def same_roi(a, b):
     return all(abs(float(x) - float(y)) < 1e-6 for x, y in zip(a, b))
 
 
-def calibrated_rgb_roi(path):
-    """RGB ROI fraction an installed calibration was made with, or None."""
+def geometry(groups=("rgb",), values=None):
+    """{"group.key": value} of the geometry fields: what a calibration depends on. Saved in the
+    calibration files (settings_geometry) by the solvers."""
+    values = values or {}
+    return {f"{group}.{f['key']}": (values.get(group) or load(group))[f["key"]]
+            for group in groups for f in FIELDS[group] if f["geometry"]}
+
+
+def calibrated_geometry(path):
+    """The geometry an installed calibration was made with, or None (no file, or made before it was saved)."""
     if not os.path.exists(path):
         return None
     try:
         with np.load(path) as data:
-            return tuple(float(x) for x in data["rgb_roi_fraction"]) if "rgb_roi_fraction" in data.files else None
-    except (OSError, ValueError):
+            if "settings_geometry" in data.files:
+                return json.loads(str(data["settings_geometry"]))
+            if "rgb_roi_fraction" in data.files:   # calibrations made before the settings page
+                roi = [float(x) for x in data["rgb_roi_fraction"]]
+                return {"rgb.roi_width": roi[0], "rgb.roi_height": roi[1]}
+    except (OSError, ValueError, KeyError):
         return None
+    return None
+
+
+def geometry_differences(path, groups=("rgb",), values=None):
+    """["<label> <calibrated> → <current>"] where the settings differ from the geometry the
+    calibration at path was made with (values: {group: values} instead of the saved ones)."""
+    calibrated = calibrated_geometry(path)
+    if calibrated is None:
+        return []
+    current = geometry(groups, values)
+    return [f"{FIELD_BY_KEY[key.split('.')[0]][key.split('.')[1]]['label']} {calibrated[key]:g} → {current[key]:g}"
+            for key in current if key in calibrated and not same_value(calibrated[key], current[key])]
+
+
+def calibration_mismatches(values=None):
+    """Warnings for the installed calibrations made with another geometry than the settings
+    (values: {group: values} to check instead of the saved ones)."""
+    warnings = []
+    for name, path, groups in CALIBRATIONS:
+        differ = geometry_differences(path, groups, values)
+        if differ:
+            labels = ", ".join(differ)
+            warnings.append(f"The installed {name} calibration was made with other camera settings ({labels}): "
+                            "replay overlays and the tools that use it refuse it until you recalibrate "
+                            "or set these back.")
+    return warnings
+
+
+def same_value(a, b):
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return abs(float(a) - float(b)) < 1e-6
+    return a == b
 
 
 # ============================================================================
@@ -328,12 +401,72 @@ def write_applied(session, output, report):
 
 
 def read_applied(session, output):
-    return read_json(os.path.join(session, "settings", f"{output}.json"))
+    """The applied report of an output in a session; the Livox recorder writes what the lidar reports
+    back in <output>.readback.json, merged here."""
+    report = read_json(os.path.join(session, "settings", f"{output}.json"))
+    readback = livox_readback(os.path.join(session, "settings", f"{output}.readback.json"))
+    if report is not None and readback is not None:
+        report = {**report, "readback": {**report["readback"], **readback.get("readback", {})},
+                  "notes": report["notes"] + readback.get("notes", [])}
+    return report
 
 
 def pending(group, report):
     """Labels of the saved values a sensor opened with this report does not use yet."""
-    if report is None:
+    if report is None or GROUP_KIND[group] != "apply":
         return []
     saved = load(group)
     return [f["label"] for f in FIELDS[group] if report["values"].get(f["key"]) != saved[f["key"]]]
+
+
+# ============================================================================
+# LIDARS
+# ============================================================================
+
+LIVOX_PATTERNS = {"non_repetitive": 0, "repetitive": 1, "repetitive_low_rate": 2}
+
+
+def livox_command(folder, values, report_path):
+    """Command line of the Livox recorder sending the "livox" settings; it writes what the lidar
+    reports back to report_path (see livox_readback)."""
+    return [config.LIVOX_RECORDER, folder, config.LIVOX_CONFIG,
+            "--pattern", LIVOX_PATTERNS[values["scan_pattern"]], "--dual-emit", int(values["dual_emit"]),
+            "--blind-spot", values["blind_spot_cm"], "--report", report_path]
+
+
+def livox_readback(path):
+    """(readback in the settings units, notes) from the report the Livox recorder writes, or None."""
+    data = read_json(path)
+    if data is None:
+        return None
+    raw, readback = data.get("readback", {}), {}
+    patterns = {v: k for k, v in LIVOX_PATTERNS.items()}
+    if "pattern" in raw:
+        readback["scan_pattern"] = patterns.get(raw["pattern"], str(raw["pattern"]))
+    if "dual_emit" in raw:
+        readback["dual_emit"] = bool(raw["dual_emit"])
+    if "blind_spot_cm" in raw:
+        readback["blind_spot_cm"] = raw["blind_spot_cm"]
+    if raw.get("pcl_data_type") not in (None, 1, 2):
+        data.setdefault("notes", []).append(f"point data type {raw['pcl_data_type']}: the recorder only reads "
+                                            "Cartesian points (1 or 2)")
+    return {"readback": readback, "notes": data.get("notes", [])}
+
+
+def hesai_mismatches(readback, values=None):
+    """[(label, reported, expected)] where the Hesai differs from the expected "hesai" values."""
+    if not readback:
+        return []
+    values = values or load("hesai")
+    return [(f["label"], format_value(f, readback[f["key"]]), format_value(f, values[f["key"]]))
+            for f in FIELDS["hesai"] if f["key"] in readback and not same_value(readback[f["key"]], values[f["key"]])]
+
+
+def format_value(f, value):
+    if value is None:
+        return "no cap" if "rate" in f["key"] else "camera default"
+    if f["kind"] == "bool":
+        return "on" if value else "off"
+    if f["kind"] == "choice":
+        return dict(f["choices"]).get(value, value)
+    return f"{value:g} {f['unit']}".strip()
