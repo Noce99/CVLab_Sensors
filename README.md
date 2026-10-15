@@ -113,7 +113,7 @@ Stop the recordings first: a sensor can be opened by one program only, and the c
 while the Record page records. Each capture page opens the sensors it needs and releases the others.
 
 1. **Get RGB-event calibration data**: the 4 cameras live; **Capture** (or Space, or automatic capture)
-   looks for the chessboard (29 mm squares by default, set per session on the page) in all four and saves
+   looks for the chessboard (29 mm squares by default, set per session on the page and confirmed on the calibrate page) in all four and saves
    the board to `data/calibration/rgb_event/captures/<date>/` when all four see it and it did not move.
    Each view shows the boards saved so far, the areas still uncovered (red cells) and how old its image is.
    The event cameras only see changes: use the **Blinking pattern** (on a screen, frequency on the page) or

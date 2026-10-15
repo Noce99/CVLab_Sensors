@@ -197,11 +197,12 @@ def camera_poses(extrinsics):
             for cam in CAMERAS}
 
 
-def calibrate(folder, install=True, log=print, progress=lambda fraction, label: None):
+def calibrate(folder, install=True, log=print, progress=lambda fraction, label: None, square_size_mm=None):
     """Full calibration of a captures/<session> folder.
 
     progress(fraction in [0, 1], label) is called before every step. Returns a
-    summary dict (see the end of the function); raises UserError.
+    summary dict (see the end of the function); raises UserError. square_size_mm: None for the
+    one recorded in the session.
     """
     # Steps: load, 4 intrinsics + 4 if outliers are dropped, 3 stereo, 3 rectification checks, save
     total = 16
@@ -224,7 +225,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         raise UserError(f"Not enough boards to calibrate ({n_unique}, need at least 10): move the board around more")
 
     image_size = config.CALIBRATION_IMAGE_SIZE
-    square_mm = session_square_size(folder)
+    square_mm = session_square_size(folder) if square_size_mm is None else square_size_mm
     log(f"Chessboard: {config.PATTERN_SIZE[0]}x{config.PATTERN_SIZE[1]} inner corners, {square_mm:g} mm squares")
     objp = pattern_points(square_size_mm=square_mm)
 

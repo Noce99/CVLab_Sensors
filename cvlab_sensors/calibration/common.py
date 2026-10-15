@@ -224,14 +224,24 @@ def count_boards(folder, cameras):
                if all(os.path.exists(os.path.join(folder, name, f"{cam}_corners.npy")) for cam in cameras))
 
 
-def session_square_size(folder):
-    """Chessboard square size (mm) of a session: the one entered on the capture page, or
-    config.SQUARE_SIZE_MM for sessions made before it was recorded."""
+def recorded_square_size(folder):
+    """Chessboard square size (mm) recorded in a session (capture or solve page), or None."""
     try:
         with open(os.path.join(folder, SESSION_FILE)) as f:
             return float(json.load(f)["square_size_mm"])
     except (OSError, KeyError, ValueError):
-        return float(config.SQUARE_SIZE_MM)
+        return None
+
+
+def session_square_size(folder):
+    """Chessboard square size (mm) of a session, config.SQUARE_SIZE_MM for sessions made before it was recorded."""
+    recorded = recorded_square_size(folder)
+    return float(config.SQUARE_SIZE_MM) if recorded is None else recorded
+
+
+def record_square_size(folder, value):
+    with open(os.path.join(folder, SESSION_FILE), "w") as f:
+        json.dump({"square_size_mm": value}, f)
 
 
 def check_square_size(value):
@@ -247,9 +257,8 @@ class Samples:
 
     def __init__(self, folder, cameras, image_sizes, dedup_px, reference="rgb_left", square_size_mm=None):
         self.folder = folder   # created with the first board
-        # An existing session keeps its own square size; a new one takes the given one
-        self.square_size_mm = (session_square_size(folder) if os.path.isdir(folder) or square_size_mm is None
-                               else square_size_mm)
+        # Until the session records its own square size (first board, or the solve page)
+        self.default_square_mm = float(config.SQUARE_SIZE_MM) if square_size_mm is None else square_size_mm
         self.cameras = cameras
         self.image_sizes = image_sizes   # {cam: (w, h)}, to normalise the corners for the page
         self.dedup_px = dedup_px
@@ -279,7 +288,8 @@ class Samples:
             name = f"{index:05d}"
             sample = os.path.join(self.folder, name)
             os.makedirs(sample)
-            self.save_session_info()
+            if recorded_square_size(self.folder) is None:
+                record_square_size(self.folder, self.default_square_mm)
             for cam, c in corners.items():
                 np.save(os.path.join(sample, f"{cam}_corners.npy"), c)
                 cv2.imwrite(os.path.join(sample, f"{cam}_corners.png"), draw(images[cam], c))
@@ -291,14 +301,16 @@ class Samples:
             self.corners[name] = corners
             return name
 
-    def set_square_size(self, value):
-        self.square_size_mm = check_square_size(value)
-        if os.path.isdir(self.folder):
-            self.save_session_info()
+    @property
+    def square_size_mm(self):
+        """Read from the session every time: the solve page can change it while this is open."""
+        recorded = recorded_square_size(self.folder)
+        return self.default_square_mm if recorded is None else recorded
 
-    def save_session_info(self):
-        with open(os.path.join(self.folder, SESSION_FILE), "w") as f:
-            json.dump({"square_size_mm": self.square_size_mm}, f)
+    def set_square_size(self, value):
+        self.default_square_mm = check_square_size(value)
+        if os.path.isdir(self.folder):
+            record_square_size(self.folder, self.default_square_mm)
 
     def delete(self, name):
         with self.lock:

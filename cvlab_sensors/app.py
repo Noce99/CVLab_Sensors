@@ -38,11 +38,11 @@ from cvlab_sensors.sensors.live import SensorManager
 
 SOLVERS = {
     "rgb_event": dict(title="Calibrate RGB ↔ event", cameras=rgb_event_solve.CAMERAS, min_boards=10,
-                      capture_url="/rgb-event/capture", module=rgb_event_solve,
+                      capture_url="/rgb-event/capture", module=rgb_event_solve, square_size=True,
                       install_path=config.RGB_EVENT_CALIBRATION_FILE, url="/rgb-event/calibrate"),
     "rgb_livox": dict(title="Calibrate RGB ↔ Livox", cameras=rgb_livox_solve.CAMERAS,
                       min_boards=rgb_livox_solve.MIN_BOARDS, capture_url="/rgb-livox/capture",
-                      module=rgb_livox_solve, install_path=config.RGB_LIVOX_CALIBRATION_FILE,
+                      module=rgb_livox_solve, install_path=config.RGB_LIVOX_CALIBRATION_FILE, square_size=True,
                       url="/rgb-livox/calibrate"),
     "livox_hesai": dict(title="Calibrate Livox ↔ Hesai", cameras=livox_hesai_solve.CAMERAS,
                         min_boards=livox_hesai_solve.MIN_STOPS, capture_url="/livox-hesai/capture",
@@ -95,7 +95,7 @@ def create_app():
     for tool_id, solver in SOLVERS.items():
         tool = {"id": tool_id, "title": solver["title"], "cameras": solver["cameras"], "min_boards": solver["min_boards"],
                 "capture_url": solver["capture_url"], "sensors": sensors,
-                **{k: solver[k] for k in ("params", "params_title", "params_note", "count", "count_unit") if k in solver}}
+                **{k: solver[k] for k in ("params", "params_title", "params_note", "count", "count_unit", "square_size") if k in solver}}
         module = solver["module"]
         app.register_blueprint(web.solve_blueprint(tool, f"{tool_id}_solve", solver["url"], module.CAPTURES_PATH,
                                                       module.RESULTS_PATH, module.calibrate, solver["install_path"]))

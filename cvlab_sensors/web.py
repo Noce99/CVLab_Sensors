@@ -11,7 +11,9 @@ import cv2
 from flask import Blueprint, jsonify, render_template, request, send_file, send_from_directory
 
 from cvlab_sensors import config
-from cvlab_sensors.calibration.common import CaptureError, UserError, count_boards, sessions
+from cvlab_sensors.calibration.common import (MAX_SQUARE_MM, MIN_SQUARE_MM, CaptureError, UserError,
+                                             check_square_size, count_boards, record_square_size,
+                                             recorded_square_size, sessions)
 
 PREVIEW_WIDTH = 640
 
@@ -192,7 +194,8 @@ def capture_blueprint(tool, name, url_prefix, captures_path, capture_function):
 def solve_blueprint(tool, name, url_prefix, captures_path, results_path, calibrate, install_path):
     """Routes of a solve page; tool: {"id", "title", "cameras", "min_boards", "capture_url"[, "params":
     [{"name", "label", "value"}] numbers passed to calibrate as keyword arguments][, "count": folder ->
-    number of usable boards / stops]},
+    number of usable boards / stops][, "square_size": True for a chessboard tool: the page asks the square
+    size, saved in the session and passed to calibrate as square_size_mm]},
     calibrate(folder, install, log, progress) -> result dict (see rgb_event/solve.py)."""
     bp = Blueprint(name, __name__, url_prefix=url_prefix)
     job = Job()
@@ -209,6 +212,7 @@ def solve_blueprint(tool, name, url_prefix, captures_path, results_path, calibra
         for entry in sessions(captures_path):
             path = os.path.join(captures_path, entry["name"])
             entry["boards"] = tool["count"](path) if "count" in tool else count_boards(path, tool["cameras"])
+            entry["square_size_mm"] = recorded_square_size(path)   # None: not recorded, the page asks
             entries.append(entry)
         return jsonify({"folders": entries, "install_path": os.path.relpath(install_path, config.REPO_ROOT)})
 
@@ -225,9 +229,16 @@ def solve_blueprint(tool, name, url_prefix, captures_path, results_path, calibra
                 params[param["name"]] = float(body.get("params", {})[param["name"]])
             except (KeyError, TypeError, ValueError):
                 return jsonify({"error": f"{param['label']}: a number is needed"}), 400
+        if tool.get("square_size"):
+            try:
+                params["square_size_mm"] = check_square_size(body["square_size_mm"])
+            except (KeyError, TypeError, ValueError):
+                return jsonify({"error": f"Square size: {MIN_SQUARE_MM:.0f}-{MAX_SQUARE_MM:.0f} mm needed"}), 400
         if not job.start(calibrate, os.path.join(captures_path, folder), install=bool(body.get("install", True)),
                          **params):
             return jsonify({"error": "A calibration is already running"}), 409
+        if "square_size_mm" in params:   # kept with the session's boards, for the next solve
+            record_square_size(os.path.join(captures_path, folder), params["square_size_mm"])
         return jsonify({"started": folder})
 
     @bp.route("/api/job")

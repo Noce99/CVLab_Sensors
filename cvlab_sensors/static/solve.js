@@ -11,9 +11,11 @@ const RMS_BAD = 1.0;
 
 let pollTimer = null;
 let shownResult = null;   // results folder currently rendered, to avoid reloading the images
+let folders = [];         // from /folders: square_size_mm is null when the session did not record one
 
 document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('run').addEventListener('click', run);
+    document.getElementById('folder').addEventListener('change', showSquareSize);
     document.getElementById('blend-slider').addEventListener('input', updateBlend);
     await loadFolders();
     poll();   // a calibration may already be running (page reloaded)
@@ -30,22 +32,45 @@ async function loadFolders() {
     }
     const firstUsable = data.folders.find(f => f.boards >= MIN_BOARDS);
     if (firstUsable) select.value = firstUsable.name;
+    folders = data.folders;
+    showSquareSize();
     document.getElementById('install-label').title = `Copy the result to ${data.install_path}`;
+}
+
+// Chessboard tools: the square size recorded in the session, or empty (with a hint) to be typed in
+function showSquareSize() {
+    const input = document.getElementById('square-size-input');
+    if (!input) return;
+    const entry = folders.find(f => f.name === document.getElementById('folder').value);
+    const recorded = entry ? entry.square_size_mm : null;
+    input.value = recorded ?? '';
+    input.placeholder = recorded === null ? 'enter' : '';
+    input.classList.toggle('warn', recorded === null);
 }
 
 async function run() {
     const folder = document.getElementById('folder').value;
     if (!folder) return;
+    const square = document.getElementById('square-size-input');
+    if (square && !square.value) {
+        setMessage('Enter the chessboard square size (mm): this session did not record one', 'bad');
+        square.focus();
+        return;
+    }
     const response = await fetch(`${API}/calibrate`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({folder, install: document.getElementById('install').checked,
-                              params: Object.fromEntries([...document.querySelectorAll('.param')].map(i => [i.dataset.name, i.value]))}),
+                              params: Object.fromEntries([...document.querySelectorAll('.param')].map(i => [i.dataset.name, i.value])),
+                              square_size_mm: square ? Number(square.value) : undefined}),
     });
     if (!response.ok) {
         setMessage((await response.json()).error, 'bad');
         return;
     }
+    const entry = folders.find(f => f.name === folder);
+    if (entry && square) entry.square_size_mm = Number(square.value);   // now recorded in the session
+    showSquareSize();
     document.getElementById('results').hidden = true;
     shownResult = null;
     poll();
@@ -69,6 +94,8 @@ function showJob(job) {
     const running = job.state === 'running';
     document.getElementById('run').disabled = running;
     document.getElementById('folder').disabled = running;
+    const square = document.getElementById('square-size-input');
+    if (square) square.disabled = running;
 
     const fill = document.getElementById('progress-fill');
     const pct = Math.round(job.progress * 100);

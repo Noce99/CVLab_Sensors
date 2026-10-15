@@ -330,6 +330,8 @@ td.bad { color: var(--bad); }
 /* Solve parameters (initial guess) and stop tables */
 .params { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .params input { width: 80px; margin-left: 4px; }
+.square-input { width: 70px; margin-left: 4px; }
+.square-input.warn { border-color: var(--warn); }
 tr.latest-row td { background: rgba(76, 141, 255, 0.08); }
 .row-delete { background: none; border: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 16px; }
 .row-delete:hover { color: var(--bad); }
