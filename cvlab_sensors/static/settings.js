@@ -1,8 +1,8 @@
 // Settings page: edit, validate and save the sensor settings; show what every camera runs with.
 // GROUPS ([[group, label]]), FIELDS ({group: [field]}), OUTPUTS ({group: [output]}), KINDS ({group: "apply" or
-// "expected"}) are set by settings.html. Three states per field: edited here (unsaved), saved but not used by
-// a running sensor yet (applies at next start), in use. "expected" groups (the Hesai) are never sent to the
-// sensor: their values are compared with what it reports (differs).
+// "readonly"}) are set by settings.html. Three states per field: edited here (unsaved), saved but not used by
+// a running sensor yet (applies at next start), in use. "readonly" groups (the Hesai) only show what the
+// sensor reports.
 
 const API = '/settings/api';
 const PREVIEW_MS = 500;
@@ -13,8 +13,10 @@ const form = {};       // group -> values in the form
 let errors = {};       // group -> {key: message}
 let validateTimer = null;
 
+const EDITABLE = GROUPS.map(([group]) => group).filter(group => KINDS[group] === 'apply');
+
 document.addEventListener('DOMContentLoaded', async () => {
-    for (const [group] of GROUPS) {
+    for (const group of EDITABLE) {
         document.getElementById(`save-${group}`).addEventListener('click', () => save(group));
         document.getElementById(`discard-${group}`).addEventListener('click', () => {
             form[group] = {...saved[group]};
@@ -39,7 +41,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showGroup(FIELDS[initial] ? initial : GROUPS[0][0]);
 
     await updateStatus();
-    for (const [group] of GROUPS) {
+    for (const group of EDITABLE) {
         form[group] = {...saved[group]};
         renderFields(group);
         validate(group);
@@ -47,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(updateStatus, 1000);
     for (const outputs of Object.values(OUTPUTS)) outputs.forEach(previewLoop);
     window.addEventListener('beforeunload', event => {
-        if (GROUPS.some(([g]) => editedKeys(g).length)) event.preventDefault();
+        if (EDITABLE.some(g => editedKeys(g).length)) event.preventDefault();
     });
 });
 
@@ -173,11 +175,6 @@ function runningCell(group, output, f) {
     const values = entry.report.values || {};
     if (!applies(f, values) && !applies(f, saved[group] || {})) return '<span class="muted">–</span>';
     const readback = (entry.report.readback || {})[f.key];
-    if (KINDS[group] === 'expected') {
-        if (readback === undefined) return '<span class="muted">not reported</span>';
-        const differs = saved[group] && !same(readback, saved[group][f.key]);
-        return `${formatValue(f, readback)}${differs ? ' <span class="badge differs">differs</span>' : ''}`;
-    }
     let shown = formatValue(f, values[f.key]);
     let note = '';
     if (readback !== undefined && readback !== null && !same(readback, values[f.key])) {
@@ -188,6 +185,34 @@ function runningCell(group, output, f) {
     }
     const pending = saved[group] && !same(values[f.key], saved[group][f.key]);
     return `${shown}${note}${pending ? ' <span class="badge pending">applies at next start</span>' : ''}`;
+}
+
+// A read-only group: what the sensor reports, nothing to edit
+function renderReadonly(group) {
+    const body = document.getElementById(`fields-${group}`);
+    if (!body.children.length) {
+        let section = null;
+        for (const f of FIELDS[group]) {
+            if (f.section !== section) {
+                section = f.section;
+                body.insertAdjacentHTML('beforeend',
+                    `<tr class="section-row"><th colspan="${1 + OUTPUTS[group].length}">${section}</th></tr>`);
+            }
+            body.insertAdjacentHTML('beforeend', `<tr>
+                <td class="setting-name">${f.label}${f.help ? `<div class="muted setting-help">${f.help}</div>` : ''}</td>
+                ${OUTPUTS[group].map(o => `<td class="setting-running" id="run-${o}-${f.key}"></td>`).join('')}</tr>`);
+        }
+    }
+    for (const output of OUTPUTS[group]) {
+        const entry = status.outputs[output];
+        const readback = entry.report ? entry.report.readback : null;
+        for (const f of FIELDS[group]) {
+            document.getElementById(`run-${output}-${f.key}`).innerHTML = readback && f.key in readback
+                ? escapeHtml(formatValue(f, readback[f.key])) : '<span class="muted">not read</span>';
+        }
+    }
+    const at = status.hesai.read_at;
+    document.getElementById(`saved-at-${group}`).textContent = at ? `read ${at.replace('T', ' ')}` : '';
 }
 
 async function validate(group) {
@@ -218,14 +243,12 @@ async function save(group) {
     showWarnings(group, result.data.warnings);
     await updateStatus();
     const open = OUTPUTS[group].some(o => status.outputs[o].state !== 'closed');
-    if (KINDS[group] === 'expected') setMessage(group, 'Expected values saved. Nothing was sent to the lidar.', 'ok');
-    else setMessage(group, open ? 'Saved. Not active yet: it applies at the next start of the sensors (see the banner above).'
-                                : 'Saved. It applies the next time the sensors open.', 'warn');
+    setMessage(group, open ? 'Saved. Not active yet: it applies at the next start of the sensors (see the banner above).'
+                           : 'Saved. It applies the next time the sensors open.', 'warn');
 }
 
 async function reset(group) {
-    if (!confirm(KINDS[group] === 'expected' ? 'Reset the expected values to their defaults?'
-                                             : 'Reset every setting of this group to its default? (applies at next start)')) return;
+    if (!confirm('Reset every setting of this group to its default? (applies at next start)')) return;
     const result = await postJson('reset', {group});
     if (!result.ok) { setMessage(group, result.data.error, 'bad'); return; }
     saved[group] = {...result.data.values};
@@ -234,8 +257,7 @@ async function reset(group) {
     renderFields(group);
     validate(group);
     await updateStatus();
-    setMessage(group, KINDS[group] === 'expected' ? 'Default expected values saved. Nothing was sent to the lidar.'
-                                                  : 'Defaults saved. They apply at the next start of the sensors.', 'warn');
+    setMessage(group, 'Defaults saved. They apply at the next start of the sensors.', 'warn');
 }
 
 // ============================================================================
@@ -250,6 +272,10 @@ async function updateStatus() {
         return;
     }
     for (const [group] of GROUPS) {
+        if (KINDS[group] === 'readonly') {
+            renderReadonly(group);
+            continue;
+        }
         if (!saved[group] || !editedKeys(group).length) {
             // Nothing edited here: follow the file (saved from another browser...)
             const changed = saved[group] && !same(saved[group], status.saved[group].values);
@@ -331,11 +357,11 @@ function renderCamera(output, entry) {
         document.getElementById(`rate-${output}`).textContent = [rate ? `${rate.rate} ${rate.unit}` : '', read]
             .filter(Boolean).join(' · ');
         const state = document.getElementById(`state-${output}`);
-        const differs = status.hesai.warnings.length;
-        state.textContent = status.hesai.error || (differs ? 'Differs from the expected values: see the banner above'
-                                                           : 'Matches the expected values');
-        state.className = 'camera-error' + (status.hesai.error || differs ? '' : ' ok');
-        document.getElementById(`dot-${output}`).className = 'dot ' + (status.hesai.error ? 'warn' : differs ? 'bad' : 'ok');
+        const problem = (rate && rate.error && rate.error !== 'starting' ? rate.error : null) || status.hesai.error;
+        state.textContent = problem || status.hesai.warnings.join('; ') || (rate && rate.warning) || (rate ? '' : 'Opening…');
+        state.className = 'camera-error' + (problem ? '' : ' warn');
+        document.getElementById(`dot-${output}`).className = 'dot ' +
+            (problem || status.hesai.warnings.length ? 'bad' : rate && !rate.error ? 'ok' : 'warn');
         return;
     }
     const rate = status.rates[output];
@@ -389,6 +415,7 @@ async function previewLoop(output) {
 // ============================================================================
 
 function formatValue(f, value) {
+    if (f.kind === 'text') return String(value);
     if (value === null || value === undefined) return f.key.includes('rate') ? 'no cap' : 'camera default';
     if (f.kind === 'bool' || typeof value === 'boolean') return value ? 'on' : 'off';
     if (f.kind === 'choice') return (f.choices.find(c => c[0] === value) || [value, value])[1];

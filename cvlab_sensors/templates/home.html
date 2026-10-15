@@ -38,7 +38,7 @@
             <a class="tool-card" href="/settings">
                 <span class="tool-step">Sensors</span>
                 <span class="tool-name">Settings</span>
-                <span class="tool-desc">Frame cameras (ROI, frame rate, exposure, gain), event cameras (rate cap, biases, filters, ROI) and Livox (scan pattern, dual emit, blind spot): saved changes apply at the next start of a sensor. The Hesai is checked, not changed.</span>
+                <span class="tool-desc">Frame cameras (ROI, frame rate, exposure, gain), event cameras (rate cap, biases, filters, ROI) and Livox (scan pattern, dual emit, blind spot): saved changes apply at the next start of a sensor. The Hesai settings are shown, read only.</span>
                 {% if stale %}
                 <span class="tool-status none">⚠ Recording with older settings: {{ stale | join(', ') }}. Saved changes apply to the next recording</span>
                 {% endif %}

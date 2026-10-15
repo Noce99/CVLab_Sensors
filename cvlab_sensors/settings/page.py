@@ -2,9 +2,9 @@
 
 Saved settings apply the next time a sensor opens. The page opens the sensors of the tab shown (like
 a capture page) and shows, for each of them, the values it runs with next to the saved ones, so a
-saved change that is not active yet is visible. The Hesai settings are only read: its tab compares
-what it reports with the expected values (its preview streams its points like the others). While a
-recording runs the page is read-only.
+saved change that is not active yet is visible. The Hesai settings are read only: its tab shows what
+it reports (changed on its own web page) and streams its points like the others. While a recording
+runs the page is read-only.
 """
 
 import io
@@ -36,7 +36,7 @@ def running(sensors, recording):
                 result = recording.hesai.latest() if recording.hesai else {"readback": None, "error": "not read"}
                 if result["readback"] is not None:
                     entry.update(state="open", where="read over the network",
-                                 report=store.applied_report("hesai", store.load("hesai"), result["readback"],
+                                 report=store.applied_report("hesai", {}, result["readback"],
                                                              hesai.problems(result["readback"])))
                 entry["error"] = result["error"]
             elif recorder is not None and recorder.is_running() and recording.session is not None:
@@ -71,15 +71,23 @@ def where(sensors):
 
 def summary(recording):
     """For the Record and home pages: per group the saved values that differ from the defaults, the
-    recording sensors still running with older settings, and what they could not set."""
+    recording sensors still running with older settings, and what they could not set (for the
+    read-only Hesai: what it reports)."""
     result = {}
     for group, label in store.GROUPS.items():
+        if store.GROUP_KIND[group] == "readonly":
+            readback = (recording.hesai.latest() if recording.hesai else {}).get("readback") or {}
+            result[group] = {"label": label, "kind": "readonly", "changed": [], "stale": [], "notes": [],
+                             "saved_at": None,
+                             "reported": [f"{f['label']} {store.format_value(f, readback[f['key']])}"
+                                          for f in store.FIELDS[group] if f["key"] in readback]}
+            continue
         values = store.load(group)
         stale, notes = [], []
         for output in store.GROUP_OUTPUTS[group]:
             recorder = recording.outputs.get(output)
-            if group == "hesai" or recording.session is None or recorder is None or not recorder.is_running():
-                continue   # the Hesai differences are in warnings()
+            if recording.session is None or recorder is None or not recorder.is_running():
+                continue
             report = store.read_applied(recording.session, output)
             if store.pending(group, report):
                 stale.append(store.OUTPUT_LABELS[output])
@@ -97,19 +105,14 @@ def summary(recording):
 
 
 def hesai_warnings(result):
-    """The Hesai settings that differ from the expected ones, and the ones that break recordings."""
+    """The Hesai settings that break recordings."""
     readback = (result or {}).get("readback")
-    if not readback:
-        return []
-    found = [f"Hesai {label} is {reported}, expected {expected}: change it on its web page "
-             f"({store.HESAI_WEB_PAGE}), or the expected value on the Settings page"
-             for label, reported, expected in store.hesai_mismatches(readback)]
-    return found + [f"Hesai {problem}" for problem in hesai.problems(readback)]
+    return [f"Hesai {problem} ({store.HESAI_WEB_PAGE})" for problem in hesai.problems(readback or {})]
 
 
 def warnings(recording):
-    """Warnings for every page: the Hesai differs from what we expect, a calibration was made with
-    other settings."""
+    """Warnings for every page: a Hesai setting breaks recordings, a calibration was made with other
+    settings."""
     return hesai_warnings(recording.hesai.latest() if recording.hesai else None) + store.calibration_mismatches()
 
 
@@ -160,7 +163,8 @@ def blueprint(sensors, recording):
         hesai_result = recording.hesai.latest() if recording.hesai else None
         return jsonify({
             "saved": {group: {"values": store.load(group), "saved_at": store.saved_at(group),
-                              "warnings": store.validate(group, store.load(group))[2]} for group in store.GROUPS},
+                              "warnings": store.validate(group, store.load(group))[2]}
+                      for group in store.GROUPS if store.GROUP_KIND[group] != "readonly"},
             "outputs": running(sensors, recording),
             "rates": rates,
             "locked": locked(),
@@ -193,7 +197,10 @@ def blueprint(sensors, recording):
             group, values = body()
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        values, errors, warnings = store.save(group, values)
+        try:
+            values, errors, warnings = store.save(group, values)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         if errors:
             return jsonify({"error": "not saved: fix the fields in red", "errors": errors, "warnings": warnings}), 400
         return jsonify({"values": values, "warnings": warnings, "saved_at": store.saved_at(group)})
@@ -206,7 +213,10 @@ def blueprint(sensors, recording):
             group, _ = body()
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-        store.reset(group)
+        try:
+            store.reset(group)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         return jsonify({"values": store.load(group)})
 
     @bp.route("/api/restart", methods=["POST"])
@@ -240,7 +250,9 @@ def blueprint(sensors, recording):
             return jsonify({"error": str(e)}), 503
         if image is None:
             return jsonify({"error": "no image yet"}), 503
-        response = send_file(io.BytesIO(jpeg(preview(image))), mimetype="image/jpeg")
+        # The lidar views are drawn at their own size (wide, shown across the page)
+        response = send_file(io.BytesIO(jpeg(image if output.startswith("lidar") else preview(image))),
+                             mimetype="image/jpeg")
         response.headers["Cache-Control"] = "no-store"
         return response
 

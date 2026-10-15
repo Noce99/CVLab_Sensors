@@ -4,8 +4,8 @@ A sensor reads them when it opens: a saved change applies the next time the sens
 recording, calibration capture or settings preview), never to a running sensor. Whatever opens a
 sensor reports what it applied (see write_applied), so the pages can tell running from saved values.
 
-The Hesai keeps its settings in its own memory and this tool never writes them: its group holds the
-values we expect, compared with what the lidar reports (hesai_mismatches).
+The Hesai keeps its settings in its own memory and this tool never writes them: its group only
+describes what it reports (read only, nothing saved).
 
 The file keeps only the values that differ from the defaults, in one profile ("active"): presets
 can be added later as more profiles.
@@ -25,8 +25,8 @@ PROFILE = "active"
 GIGE_MAX_MB_S = 110   # usable payload of one 1 GbE camera link
 
 GROUPS = {"rgb": "Frame cameras (Basler)", "event": "Event cameras (EVK4)", "livox": "Livox HAP", "hesai": "Hesai XT32"}
-# "apply": sent to the sensor when it opens. "expected": only compared with what the sensor reports
-GROUP_KIND = {"rgb": "apply", "event": "apply", "livox": "apply", "hesai": "expected"}
+# "apply": sent to the sensor when it opens. "readonly": only shown, as the sensor reports it
+GROUP_KIND = {"rgb": "apply", "event": "apply", "livox": "apply", "hesai": "readonly"}
 # Every sensor of a group uses the group's settings (a stereo pair must match)
 GROUP_OUTPUTS = {"rgb": ["rgb_left", "rgb_right"], "event": ["event_left", "event_right"],
                  "livox": ["lidar_livox"], "hesai": ["lidar_hesai"]}
@@ -136,14 +136,15 @@ FIELDS = {
         field("blind_spot_cm", "Blind spot", "int", 50, "Scan", "cm", 50, 200, 1,
               help="Points closer than this are dropped"),
     ],
-    # Measured on 2026-10-15: 600 rpm, dual return, 0–360°
+    # Read only (cvlab_sensors.sensors.hesai.read_config): how to show what the Hesai reports
     "hesai": [
-        field("spin_rpm", "Spin rate", "choice", "600", "Scan",
-              choices=[["600", "10 Hz (600 rpm)"], ["1200", "20 Hz (1200 rpm)"]]),
-        field("return_mode", "Return mode", "choice", "dual", "Scan",
+        field("spin_rpm", "Spin rate", "choice", None, "Scan",
+              choices=[["300", "5 Hz (300 rpm)"], ["600", "10 Hz (600 rpm)"], ["1200", "20 Hz (1200 rpm)"]]),
+        field("return_mode", "Return mode", "choice", None, "Scan",
               choices=[["last", "Last"], ["strongest", "Strongest"], ["dual", "Dual (last + strongest)"]]),
-        field("fov_start_deg", "FoV start", "number", 0.0, "Field of view", "°", 0, 360, 0.1),
-        field("fov_stop_deg", "FoV stop", "number", 360.0, "Field of view", "°", 0, 360, 0.1),
+        field("fov", "Field of view", "text", None, "Scan", help="Azimuth range, in the lidar frame"),
+        field("clock_source", "Clock source", "text", None, "Time", help="Must not be PTP (see the README)"),
+        field("standby", "Standby", "bool", None, "Time"),
     ],
 }
 FIELD_BY_KEY = {group: {f["key"]: f for f in fields} for group, fields in FIELDS.items()}
@@ -184,6 +185,8 @@ def saved_at(group):
 def save(group, values):
     """Validate and save the values of a group; returns (values, errors, warnings), nothing saved
     when there are errors."""
+    if GROUP_KIND[group] == "readonly":
+        raise ValueError(f"the {GROUPS[group]} settings are read only")
     values, errors, warnings = validate(group, values)
     if errors:
         return values, errors, warnings
@@ -196,6 +199,8 @@ def save(group, values):
 
 
 def reset(group):
+    if GROUP_KIND[group] == "readonly":
+        raise ValueError(f"the {GROUPS[group]} settings are read only")
     data = _read_file()
     data["groups"].pop(group, None)
     os.makedirs(os.path.dirname(config.SETTINGS_FILE), exist_ok=True)
@@ -453,16 +458,9 @@ def livox_readback(path):
     return {"readback": readback, "notes": data.get("notes", [])}
 
 
-def hesai_mismatches(readback, values=None):
-    """[(label, reported, expected)] where the Hesai differs from the expected "hesai" values."""
-    if not readback:
-        return []
-    values = values or load("hesai")
-    return [(f["label"], format_value(f, readback[f["key"]]), format_value(f, values[f["key"]]))
-            for f in FIELDS["hesai"] if f["key"] in readback and not same_value(readback[f["key"]], values[f["key"]])]
-
-
 def format_value(f, value):
+    if f["kind"] == "text":
+        return str(value)
     if value is None:
         return "no cap" if "rate" in f["key"] else "camera default"
     if f["kind"] == "bool":

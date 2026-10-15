@@ -449,9 +449,9 @@ body.has-timeline { padding-bottom: 175px; }
 }
 .badge.edited { background: rgba(76, 141, 255, 0.18); color: var(--accent); }
 .badge.pending { background: rgba(210, 153, 34, 0.2); color: var(--warn); }
-.badge.differs { background: rgba(248, 81, 73, 0.2); color: var(--bad); }
-.banner.hesai-note { margin: 12px 12px 0; }
-.banner.hesai-note .btn-secondary { margin-top: 6px; display: block; }
+.banner.hesai-note { margin: 12px; }
+.banner.hesai-note .btn-secondary { margin-top: 8px; }
+.settings-layout.wide-preview { grid-template-columns: 1fr; }
 .camera-error.ok { color: var(--ok); }
 .badge.geometry { background: rgba(176, 124, 240, 0.18); color: var(--lidar); }
 .message.edited { color: var(--accent); }

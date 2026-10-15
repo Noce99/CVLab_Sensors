@@ -85,7 +85,10 @@ function renderSettings(settings, warnings, running) {
     const lines = warnings.map(w => `<div class="banner bad">⚠ ${escapeHtml(w)}</div>`);
     for (const s of ['rgb', 'event', 'livox', 'hesai'].map(group => settings[group])) {
         let changed = s.changed.length ? s.changed.map(escapeHtml).join(', ') : 'defaults';
-        if (s.kind === 'expected') changed = `expected ${changed} (checked, not sent)`;
+        if (s.kind === 'readonly') {
+            changed = (s.reported.length ? s.reported.map(escapeHtml).join(', ') : 'not read yet')
+                + ' <span class="muted">(its own settings, changed on its web page)</span>';
+        }
         const at = s.saved_at ? ` <span class="muted">(saved ${s.saved_at.replace('T', ' ')})</span>` : '';
         lines.push(`<div><strong>${s.label}:</strong> ${changed}${at}</div>`);
         if (s.stale.length) {

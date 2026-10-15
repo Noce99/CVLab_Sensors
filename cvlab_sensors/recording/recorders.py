@@ -201,15 +201,13 @@ def livox_recorder(session):
 
 
 def hesai_recorder(monitor):
-    """Hesai recorder command; records in the session the settings the Hesai reports at start, with
-    the expected ones (it keeps its settings itself: nothing is sent)."""
+    """Hesai recorder command; records in the session the settings the Hesai reports at start (it
+    keeps its settings itself: nothing is sent)."""
     def command(session):
         result = monitor.refresh() if monitor is not None else {"readback": None, "error": "not read"}
         readback = result["readback"] or {}
         notes = hesai.problems(readback) + ([result["error"]] if result["error"] else [])
-        notes += [f"{label} is {reported}, expected {expected}: change it on {store.HESAI_WEB_PAGE}"
-                  for label, reported, expected in store.hesai_mismatches(readback)]
-        store.write_applied(session, "lidar_hesai", store.applied_report("hesai", store.load("hesai"), readback, notes))
+        store.write_applied(session, "lidar_hesai", store.applied_report("hesai", {}, readback, notes))
         return [config.HESAI_RECORDER, session / "lidar_hesai", config.HESAI_IP]
     return command
 

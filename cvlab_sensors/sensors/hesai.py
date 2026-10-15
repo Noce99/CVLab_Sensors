@@ -5,6 +5,9 @@ Config info (PTC command 0x08) layout, checked on 2026-10-15 against the web API
 GPS port 10110, clock source, UDP sequence): ip, mask, gateway, dest ip (4 B each), dest port,
 GPS port, spin rate rpm (2 B each), sync (1), sync angle, start angle, stop angle (2 B, 0.1 deg),
 clock source, UDP sequence, trigger method, return mode, standby, motor status (1 B each)...
+Its start / stop angles are NOT the FoV set on the web page: that one is PTC command 0x23
+(mode 0: one range, start and end in 0.1 deg; mode 3: one range per channel group), checked on
+2026-10-15 by setting 130-230 deg on the web page.
 """
 
 import socket
@@ -17,6 +20,7 @@ from cvlab_sensors import config
 
 PTC_PORT = 9347
 PTC_GET_CONFIG = 0x08
+PTC_GET_FOV = 0x23
 TIMEOUT_S = 2.0
 POLL_PERIOD_S = 30.0
 RETURN_MODES = {0: "last", 1: "strongest", 2: "dual"}
@@ -33,24 +37,38 @@ def _recv(sock, n):
     return data
 
 
+def _query(sock, command):
+    """Payload of the answer to a PTC command without payload."""
+    sock.sendall(struct.pack(">BBBBI", 0x47, 0x74, command, 0, 0))
+    _, _, _, code, length = struct.unpack(">BBBBI", _recv(sock, 8))
+    body = _recv(sock, length)
+    if code != 0:
+        raise RuntimeError(f"Hesai PTC command 0x{command:02x} failed (code {code})")
+    return body
+
+
 def read_config(ip=config.HESAI_IP):
-    """{"spin_rpm", "return_mode", "fov_start_deg", "fov_stop_deg", "clock_source", "standby"}, in the
-    units of the "hesai" settings."""
+    """{"spin_rpm", "return_mode", "fov", "clock_source", "standby"}, in the units of the "hesai"
+    fields of cvlab_sensors.settings.store."""
     with socket.create_connection((ip, PTC_PORT), timeout=TIMEOUT_S) as sock:
-        sock.sendall(struct.pack(">BBBBI", 0x47, 0x74, PTC_GET_CONFIG, 0, 0))
-        _, _, _, code, length = struct.unpack(">BBBBI", _recv(sock, 8))
-        body = _recv(sock, length)
-    if code != 0 or length < 35:
-        raise RuntimeError(f"Hesai PTC config query failed (code {code}, {length} bytes)")
+        body = _query(sock, PTC_GET_CONFIG)
+        fov = _query(sock, PTC_GET_FOV)
+    if len(body) < 35:
+        raise RuntimeError(f"Hesai PTC config answer too short ({len(body)} bytes)")
     spin, = struct.unpack(">H", body[20:22])
-    start, stop = struct.unpack(">HH", body[25:29])
-    return {"spin_rpm": str(spin), "return_mode": RETURN_MODES.get(body[32], f"code {body[32]}"),
-            "fov_start_deg": start / 10, "fov_stop_deg": stop / 10,
+    if len(fov) >= 5 and fov[0] == 0:
+        start, end = struct.unpack(">HH", fov[1:5])
+        fov_text = f"{start / 10:g}° – {end / 10:g}°"
+    elif fov and fov[0] == 3:
+        fov_text = f"per channel group ({fov[1] if len(fov) > 1 else '?'} ranges): see its web page"
+    else:
+        fov_text = f"unknown (mode {fov[0] if fov else '?'})"
+    return {"spin_rpm": str(spin), "return_mode": RETURN_MODES.get(body[32], f"code {body[32]}"), "fov": fov_text,
             "clock_source": CLOCK_SOURCES.get(body[29], f"code {body[29]}"), "standby": bool(body[33])}
 
 
 def problems(readback):
-    """Settings that break the recordings whatever the expected values (see tools/check_ptp.py)."""
+    """Settings that break the recordings (see tools/check_ptp.py)."""
     found = []
     if readback.get("clock_source") == "PTP":
         found.append("clock source is PTP: its clock jumps (it cannot follow our two-step master). "
