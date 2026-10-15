@@ -144,6 +144,8 @@ main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .message.ok { color: var(--ok); }
 .message.warn { color: var(--warn); }
 .message.bad { color: var(--bad); }
+/* Record page without connection to the NUC: the status and previews shown are stale */
+.offline .record-groups, .offline .record-previews { opacity: 0.45; }
 
 .capture-strip {
     display: grid;

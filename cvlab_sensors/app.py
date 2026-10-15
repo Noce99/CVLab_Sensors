@@ -19,6 +19,7 @@ process only: no capture while the Record page records); the other pages release
 import argparse
 import os
 import signal
+import socket
 import sys
 from datetime import datetime
 
@@ -122,12 +123,46 @@ def create_app():
     return app, sensors, recording
 
 
+def detach_from_terminal(log_path):
+    """Write the output of the server (and of the processes it starts) to log_path, not to the
+    terminal, and survive the terminal closing.
+
+    The terminal is an SSH session over the Wi-Fi, which drops during runs: printing to a stalled
+    session blocks the printing thread (a request, the disk guard, a recorder stop), printing to a
+    closed one fails, and its hangup signal would kill the server and leave the recorders running
+    without the disk guard. Ctrl+C still stops the server.
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if log_path.exists() and log_path.stat().st_size > config.APP_LOG_MAX_BYTES:
+        log_path.replace(log_path.with_name(log_path.name + ".1"))
+    sys.stdout.flush()
+    sys.stderr.flush()
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.close(fd)
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args()
+    # Checked here, while errors still reach the terminal: a server started earlier survives its terminal
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # as the server: TIME_WAIT is not "in use"
+        try:
+            s.bind(("0.0.0.0", args.port))
+        except OSError as e:
+            sys.exit(f"Port {args.port} not available ({e.strerror}): is the server already running? "
+                     f"(pgrep -af cvlab_sensors)")
+    print(f"Rig tools on http://0.0.0.0:{args.port}\n"
+          f"Output in {config.APP_LOG} (tail -f it). The server survives the terminal closing; Ctrl+C stops it.")
+    detach_from_terminal(config.APP_LOG)
+    print(f"\n=== {datetime.now():%Y-%m-%d %H:%M:%S} server started on port {args.port} (pid {os.getpid()})")
     app, sensors, recording = create_app()
-    print(f"Rig tools on http://0.0.0.0:{args.port}")
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     try:
         app.run(host="0.0.0.0", port=args.port, threaded=True, use_reloader=False)

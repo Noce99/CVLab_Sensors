@@ -32,6 +32,10 @@ SETTINGS_FILE = DATA_DIR / "settings" / "active.json"
 CALIBRATION_DIR = DATA_DIR / "calibration"
 # Outputs of the lidar recorders run by the live calibration tools, emptied as they are read
 STREAM_DIR = DATA_DIR / "stream"
+# Output of the web app (not the terminal: see cvlab_sensors.app.detach_from_terminal), moved to
+# app.log.1 at start beyond APP_LOG_MAX_BYTES
+APP_LOG = DATA_DIR / "logs" / "app.log"
+APP_LOG_MAX_BYTES = 50_000_000
 
 # Recorders: Python modules (run with python -m from REPO_ROOT) and native programs
 RGB_RECORDER = "cvlab_sensors.recording.rgb_recorder"
@@ -40,7 +44,11 @@ LIDAR_RECORDERS_DIR = REPO_ROOT / "lidar_recorders"
 LIVOX_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_livox"
 HESAI_RECORDER = LIDAR_RECORDERS_DIR / "save_point_cloud_hesai"
 LIVOX_CONFIG = LIDAR_RECORDERS_DIR / "livox_hap.json"   # network only: the SDK does not send its lidar_configs (scan pattern... are Settings page values)
-RESET_EVENT_CAMERAS_SCRIPT = REPO_ROOT / "system" / "reset_event_cameras.sh"
+# Run as root through sudo -n: the root-owned installed copy (the repo copy is writable by the user,
+# a sudoers rule on it would give root to anyone running as that user), the repo copy until installed
+RESET_EVENT_CAMERAS_INSTALLED = Path("/usr/local/sbin/cvlab-reset-event-cameras")
+RESET_EVENT_CAMERAS_SCRIPT = (RESET_EVENT_CAMERAS_INSTALLED if RESET_EVENT_CAMERAS_INSTALLED.exists()
+                              else REPO_ROOT / "system" / "reset_event_cameras.sh")
 
 # Recording stops automatically when the staging disk has less free space than this
 MIN_FREE_DISK_GB = 2.0

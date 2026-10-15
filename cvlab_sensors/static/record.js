@@ -3,6 +3,9 @@
 
 const API = '/record/api';
 const PREVIEW_MS = 600;
+const STATUS_MS = 1000;
+// A request without answer for this long counts as lost: the page is used over Wi-Fi, which drops
+const TIMEOUT_MS = 4000;
 // Aspect ratio of each preview: RGB full frame (ROI, from the settings), event sensor, Livox virtual camera, Hesai panorama
 const RGB_ASPECT = `${RGB_SIZE[0]} / ${RGB_SIZE[1]}`;
 const ASPECT = {rgb_left: RGB_ASPECT, rgb_right: RGB_ASPECT, event_left: '16 / 9', event_right: '16 / 9',
@@ -43,18 +46,34 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('discard').addEventListener('click', () => {
         if (confirm('Delete the whole session?')) post('discard');
     });
-    updateStatus();
-    setInterval(updateStatus, 1000);
+    statusLoop();
 });
 
 let status = null;
+let offlineSince = null;   // time of the first status request without answer
+
+// One request at a time: when the connection drops, requests do not pile up
+async function statusLoop() {
+    while (true) {
+        await updateStatus();
+        await sleep(STATUS_MS);
+    }
+}
 
 async function updateStatus() {
     try {
-        status = await (await fetch(`${API}/status`)).json();
+        status = await fetchWithTimeout(`${API}/status`, {}, response => response.json());
     } catch (error) {
-        setMessage('Server not reachable', 'bad');
+        offlineSince = offlineSince || new Date();
+        document.body.classList.add('offline');
+        setMessage(`No connection to the NUC since ${offlineSince.toLocaleTimeString()}: the recorders keep `
+                   + 'running there, this page shows their status again when the connection is back.', 'bad');
         return;
+    }
+    if (offlineSince) {
+        setMessage(`Connection back (lost at ${offlineSince.toLocaleTimeString()}).`, 'ok');
+        offlineSince = null;
+        document.body.classList.remove('offline');
     }
     document.getElementById('session').textContent = status.session || 'none';
     document.getElementById('size').textContent = status.size_gb !== null ? `${status.size_gb} GB` : '-';
@@ -123,9 +142,11 @@ async function previewLoop(output) {
             continue;
         }
         try {
-            const response = await fetch(`${API}/preview/${output}`, {cache: 'no-store'});
-            if (!response.ok) throw new Error((await response.json()).error);
-            const url = URL.createObjectURL(await response.blob());
+            const blob = await fetchWithTimeout(`${API}/preview/${output}`, {cache: 'no-store'}, async response => {
+                if (!response.ok) throw new Error((await response.json()).error);
+                return response.blob();
+            });
+            const url = URL.createObjectURL(blob);
             await new Promise(resolve => { img.onload = img.onerror = resolve; img.src = url; });
             if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
             img.dataset.url = url;
@@ -145,8 +166,16 @@ async function toggleGroup(group) {
 
 async function post(path, pendingText) {
     if (pendingText) setMessage(pendingText, '');
-    const response = await fetch(`${API}/${path}`, {method: 'POST'});
-    const result = await response.json();
+    let response, result;
+    try {
+        // No timeout: starting the event cameras resets them first (up to ~20 s)
+        response = await fetch(`${API}/${path}`, {method: 'POST'});
+        result = await response.json();
+    } catch (error) {
+        setMessage('No answer from the NUC (connection lost?): the command may not have arrived. '
+                   + 'Check the status when the connection is back before trying again.', 'bad');
+        return;
+    }
     if (!response.ok) setMessage(result.error, 'bad');
     else if (result.saved) setMessage(`Saved as data/sessions/${result.saved}`, 'ok');
     else setMessage('', '');
@@ -157,6 +186,17 @@ function setMessage(text, kind) {
     const el = document.getElementById('message');
     el.textContent = text;
     el.className = 'message ' + kind;
+}
+
+// fetch + read(response), aborted after TIMEOUT_MS (the body too: the connection can drop while it arrives)
+async function fetchWithTimeout(url, options, read) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+        return await read(await fetch(url, {...options, signal: controller.signal}));
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 function sleep(ms) {

@@ -35,6 +35,7 @@ GAP_US = {"rgb": 1_000_000, "event": 200_000, "lidar": 2_000_000}   # longer hol
 MAX_RGB_OFFSET_US = 500_000       # an RGB frame further than this from the requested time is not shown
 RGB_SAME_EXPOSURE_US = 5_000      # see Session.rgb_frame
 MAX_EVENT_OFFSET_US = 100_000    # an event frame further than this (or its accumulation time) is not shown
+EVENT_TAIL_SLACK_US = 1_000_000  # events this far past a recording's last sync pair are a corrupted tail
 
 
 def event_cache_name(representation, accumulation_ms):
@@ -256,17 +257,26 @@ def render_events(session_path, cam, representation, accumulation_ms, progress):
         iterator = open_raw(rec.raw_path, accumulation_us)
         height, width = iterator.get_size()
         span = max(rec.last_host_us - rec.first_host_us, 1)
-        for k, evs in enumerate(iterator):
-            # Intervals without events are not frames; the end of an interval comes from its events
-            if not len(evs):
-                continue
-            camera_end = (int(evs["t"][-1]) // accumulation_us + 1) * accumulation_us
-            frame = render_window(representation, evs, width, height, camera_end - accumulation_us, camera_end)
-            host_us = rec.to_host_us(camera_end)
-            cv2.imwrite(os.path.join(out, f"{host_us}.png"), frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
-            times.append(host_us)
-            if k % 15 == 0:
-                progress.value = min((done + min(host_us - rec.first_host_us, span)) / total, 0.999)
+        try:
+            for k, evs in enumerate(iterator):
+                # Intervals without events are not frames; the end of an interval comes from its events
+                if not len(evs):
+                    continue
+                if int(evs["t"][0]) > rec.last_camera_us + EVENT_TAIL_SLACK_US:
+                    print(f"{rec.raw_path}: events at {int(evs['t'][0])} us, past the last sync pair "
+                          f"({rec.last_camera_us} us): corrupted tail skipped")
+                    break
+                camera_end = (int(evs["t"][-1]) // accumulation_us + 1) * accumulation_us
+                frame = render_window(representation, evs, width, height, camera_end - accumulation_us, camera_end)
+                host_us = rec.to_host_us(camera_end)
+                cv2.imwrite(os.path.join(out, f"{host_us}.png"), frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+                times.append(host_us)
+                if k % 15 == 0:
+                    progress.value = min((done + min(host_us - rec.first_host_us, span)) / total, 0.999)
+        except AssertionError as e:
+            # EventsIterator asserts monotonic timestamps; EVT3 protocol violations at the end of a file
+            # (2026-10-15, left camera stopped at ~23 Mev/s) break it: keep the frames rendered so far
+            print(f"{rec.raw_path}: unreadable past this point, rest skipped ({e})")
         done += span
     np.save(os.path.join(out, "index.npy"), np.array(sorted(times), dtype=np.int64))
     progress.value = 1.0

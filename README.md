@@ -4,7 +4,14 @@ One web app drives the sensor rig: record sessions, replay them, and calibrate t
 
 ```
 venv_3_12/bin/python -m cvlab_sensors          # from the repo root, then open http://<NUC_IP>:5001
+tail -f data/logs/app.log                      # its output
 ```
+The server writes its output to `data/logs/app.log`, not to the terminal, and survives the terminal
+closing: the NUC is reached over Wi-Fi, which drops during runs, and an SSH session that stalls or
+closes would otherwise block or kill the server (the recorders kept running, without the disk
+guard). Ctrl+C stops it; a dropped session leaves it running (`pgrep -af cvlab_sensors`, stop it
+with `kill -INT <pid>`). The Record page shows when it lost the connection and does not stop the
+recording: reload it when the connection is back.
 
 | Computers | ssh                      |
 | --------  | -------                  |
@@ -45,7 +52,7 @@ cvlab_sensors/             Python package: the web app and everything it uses
 ├── tools/                 check_ptp.py, find_hot_pixels.py
 └── templates/, static/    pages
 lidar_recorders/           C++ Livox / Hesai recorders (built in the SDK trees by compile.sh), livox_hap.json
-system/                    ptp4l config + systemd service, EVK4 USB reset script (sudoers)
+system/                    ptp4l config + systemd service, EVK4 reset + USB3 check script (sudoers)
 data/                      everything the app writes (not in git)
 ├── staging/               sessions being recorded
 ├── sessions/              saved sessions
@@ -68,7 +75,7 @@ Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ├── lidar_livox/, lidar_hesai/   <host_time_us>.h5: xyz (mm, float32, native sensor frame),
 │                                timestamp_ns (lidar clock), intensity, sync [lidar_ns, host_ns]
 ├── rgb_clock_sync.csv           Basler clock <-> host clock
-├── logs/, status/, previews/
+├── logs/, status/, previews/    logs/host.log: host events during the recording
 ├── replay_cache/                event frames rendered by the Replay page
 ```
 Readers are in `cvlab_sensors/sensors/` (`lidar.py`, `events.py`). Read `.raw` files with
@@ -77,15 +84,25 @@ which breaks the `.sync.csv` mapping when a camera was opened before the recordi
 
 The event rate is capped in hardware at `EVENT_RECORD_MAX_RATE` (20 Mev/s per camera): uncapped, a
 flickering lab reached ~38 Mev/s and the events reached the host up to 5 s late.
-**Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
-camera can produce more than USB2 can carry. Hot pixels are masked in hardware
+**Event cameras must be on USB3**: on USB2 (480 Mbps) their stream gets corrupted (`Evt3 protocol
+violation` in the logs, holes of ~80 ms every 100 ms, the recorder can crash) even at 2 Mev/s. At a
+cold boot they power up together with the hub and miss the USB3 link training: they show up on the
+hub's USB2 side (`lsusb -t`: under a 480M bus) and stay there. **After each boot, re-plug both
+EVK4s**: the Record page warns when one is on USB2. Software cannot power-cycle them on this hub
+(tried: its power switching is ganged and turning off every port did not cut the power); a hub with
+per-port power switching (`uhubctl`) would allow it. Hot pixels are masked in hardware
 (`EVENT_HOT_PIXELS` in `cvlab_sensors/config.py`, find them with `python -m cvlab_sensors.tools.find_hot_pixels <file.raw>`).
 
-Before recording the event cameras, the app power-cycles them with `system/reset_event_cameras.sh`
-through `sudo -n`: it needs a sudoers rule such as
+Before recording the event cameras, the app resets them (and checks they are on USB3) with
+`system/reset_event_cameras.sh` through `sudo -n`, from a root-owned copy: a passwordless sudo rule
+on a file the user can edit would give root to anyone running as that user. Install it (again after
+each change of the script) and allow it without password (`sudo visudo -f /etc/sudoers.d/cvlab-sensors`):
 ```
-ubm ALL=(ALL) NOPASSWD: /home/ubm/CVLab_Sensors/system/reset_event_cameras.sh
+sudo install -o root -g root -m 755 system/reset_event_cameras.sh /usr/local/sbin/cvlab-reset-event-cameras
+ubm ALL=(ALL) NOPASSWD: /usr/local/sbin/cvlab-reset-event-cameras      # the sudoers rule
 ```
+Each recording also keeps the host events (kernel/USB, Wi-Fi, NetworkManager, tailscale, ptp4l) in
+`<session>/logs/host.log`, to check holes in the data against.
 
 ## Replay
 Web app → **Replay**: any session of `data/sessions/` (or not yet saved, in `data/staging/`) along a

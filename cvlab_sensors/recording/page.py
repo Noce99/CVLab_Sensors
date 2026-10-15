@@ -11,6 +11,7 @@ import os
 import subprocess
 import threading
 import time
+import traceback
 from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, send_file
@@ -48,6 +49,38 @@ def orphan_recorders_message():
             "stop them (kill -INT) before recording again")
 
 
+class HostLog:
+    """The host events of a recording (<session>/logs/host.log), to check holes in the data against:
+    kernel (USB), Wi-Fi, NetworkManager, tailscale and ptp4l messages, followed with journalctl."""
+
+    MATCHES = ["_TRANSPORT=kernel", "+", "_SYSTEMD_UNIT=NetworkManager.service", "+",
+               "_SYSTEMD_UNIT=wpa_supplicant.service", "+", "_SYSTEMD_UNIT=tailscaled.service", "+",
+               "_SYSTEMD_UNIT=ptp4l-cvlab.service"]
+
+    def __init__(self):
+        self.process = None
+        self.lock = threading.Lock()   # stopped by the requests and by the disk guard
+
+    def start(self, path):
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                return
+            try:
+                with open(path, "ab") as log:
+                    self.process = subprocess.Popen(["journalctl", "--follow", "--lines=0", "--output=short-precise",
+                                                     "--no-pager", *self.MATCHES],
+                                                    stdout=log, stderr=subprocess.STDOUT)
+            except OSError as e:
+                print(f"WARNING: host log not recorded: {e}")
+
+    def stop(self):
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                self.process.terminate()
+                self.process.wait()
+            self.process = None
+
+
 class Recording:
     """The recorders, the current session and the disk guard."""
 
@@ -61,6 +94,7 @@ class Recording:
         self.started = None
         self.message = None
         self.lidar_cache = {}   # output -> (chunk path, preview image)
+        self.host_log = HostLog()
         self.message = orphan_recorders_message()
         threading.Thread(target=self.disk_guard, daemon=True).start()
 
@@ -69,10 +103,13 @@ class Recording:
 
     def disk_guard(self):
         while True:
-            if self.any_running() and free_disk_gb() < config.MIN_FREE_DISK_GB:
-                self.message = f"Less than {config.MIN_FREE_DISK_GB} GB free: recording stopped"
-                print(f"WARNING: {self.message}")
-                self.stop(None)
+            try:
+                if self.any_running() and free_disk_gb() < config.MIN_FREE_DISK_GB:
+                    self.message = f"Less than {config.MIN_FREE_DISK_GB} GB free: recording stopped"
+                    print(f"WARNING: {self.message}")
+                    self.stop(None)
+            except Exception:
+                traceback.print_exc()   # the guard must outlive any error
             time.sleep(1.0)
 
     def start(self, groups):
@@ -87,14 +124,16 @@ class Recording:
                 self.session = create_session()
                 self.started = datetime.now()
             if "event" in groups and not any(r.is_running() for r in self.groups["event"]):
-                # Power-cycle the event cameras so they open reliably
+                # Reset the event cameras so they open reliably, and bring them up on USB3 (at a
+                # cold boot they enumerate on USB2)
                 result = subprocess.run(["sudo", "-n", str(config.RESET_EVENT_CAMERAS_SCRIPT)],
                                         capture_output=True, text=True)
                 if result.returncode != 0:
-                    self.message = f"event camera reset failed: {result.stderr.strip() or result.returncode}"
+                    self.message = f"event camera reset: {result.stderr.strip() or f'exit code {result.returncode}'}"
             for group in groups:
                 for recorder in self.groups[group]:
                     recorder.start(self.session)
+            self.host_log.start(self.session / "logs" / "host.log")
 
     def stop(self, groups):
         """Stop some groups (None: all); each recorder flushes its data."""
@@ -104,6 +143,8 @@ class Recording:
             t.start()
         for t in threads:
             t.join()
+        if not self.any_running():
+            self.host_log.stop()
 
     def save(self):
         with self.lock:

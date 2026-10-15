@@ -42,6 +42,7 @@ class EventRecording:
         self.clock = ClockMapping(sync[:, 0] * 1000, sync[:, 1])
         self.first_host_us = int(sync[0, 1] // 1000)
         self.last_host_us = int(sync[-1, 1] // 1000)
+        self.last_camera_us = int(sync[-1, 0])
 
     def to_host_us(self, camera_us):
         return int(self.clock.to_host_ns(int(camera_us) * 1000) // 1000)
