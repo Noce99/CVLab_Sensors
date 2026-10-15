@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from cvlab_sensors import config
+from cvlab_sensors.settings import store
 
 SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
 
@@ -175,9 +176,11 @@ def load_calibration(path):
         calib = {k: data[k] for k in data.files}
     if "pipeline_version" not in calib:
         raise ValueError(f"{path} was made by the old calibration pipeline: recalibrate")
-    roi = tuple(calib["rgb_roi_fraction"])
-    if roi != tuple(config.RGB_ROI_FRACTION):
-        raise ValueError(f"{path}: calibrated with RGB ROI {roi}, current ROI is {config.RGB_ROI_FRACTION}")
+    roi = tuple(float(x) for x in calib["rgb_roi_fraction"])
+    current = store.rgb_roi()
+    if not store.same_roi(roi, current):
+        raise ValueError(f"{path}: calibrated with RGB ROI {roi[0]:g} × {roi[1]:g}, the Settings page sets "
+                         f"{current[0]:g} × {current[1]:g}: recalibrate, or set the ROI back")
     return calib
 
 

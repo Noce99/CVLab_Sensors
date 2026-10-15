@@ -5,10 +5,12 @@ Usage: event.py <session_folder> [--right-camera]
 Writes one RAW file per recording into <session>/event_{left,right}/:
   <host_start_us>.raw            events (+ external triggers if EVENT_TRIGGER_IN)
   <host_start_us>.sync.csv       [camera_t_us, host_ns] pairs, ~10 per second
-  <host_start_us>.json           metadata
+  <host_start_us>.json           metadata, with the camera settings applied
 cvlab_sensors.sensors.events.EventRecording maps the camera clock to the host clock from the sync
 pairs (cvlab_sensors.timesync: lower envelope fit, clock drift included).
-Also writes <session>/status/event_*.json and <session>/previews/event_*.jpg.
+Also writes <session>/status/event_*.json, <session>/previews/event_*.jpg and
+<session>/settings/event_*.json (the settings applied, read once at start: changes saved later on
+the Settings page apply to the next recording).
 Stop with SIGINT/SIGTERM.
 """
 
@@ -21,13 +23,13 @@ import time
 import traceback
 from datetime import datetime
 
-import metavision_hal
 from metavision_core.event_io import EventsIterator
 from metavision_core.event_io.raw_reader import initiate_device
 
 from cvlab_sensors import config
 from cvlab_sensors.sensors.events import colored_frame
-from cvlab_sensors.sensors.evk4 import DELTA_T_US, evk4_usb_speeds_mbps, limit_event_rate, mask_hot_pixels
+from cvlab_sensors.sensors.evk4 import DELTA_T_US, configure, evk4_usb_speeds_mbps
+from cvlab_sensors.settings import store
 from cvlab_sensors.status import Throttle, write_json_atomic, write_preview_atomic
 
 SYNC_PERIOD_S = 0.1
@@ -49,6 +51,7 @@ class Status:
         self.last_update = None
         self.error = None
         self.warning = None
+        self.link_warning = None   # USB2 link, kept with the warnings of each reconnection
 
     def write(self):
         try:
@@ -83,20 +86,17 @@ def open_device(serial, status):
     return None
 
 
-def record(serial, name, session, status):
+def record(serial, name, session, status, settings):
     device = open_device(serial, status)
     if device is None:
         return
 
     events_stream = device.get_i_events_stream()
     try:
-        hot_pixels = mask_hot_pixels(device, serial)
-        limit_event_rate(device, config.EVENT_RECORD_MAX_RATE)
-
-        if config.EVENT_TRIGGER_IN:
-            trigger_in = device.get_i_trigger_in()
-            trigger_in.enable(metavision_hal.I_TriggerIn.Channel.MAIN)
-            print("Trigger input MAIN enabled")
+        report = configure(device, serial, settings, settings["record_max_rate_mev"])
+        store.write_applied(session, name, report)
+        status.warning = "; ".join(filter(None, [status.link_warning, *report["notes"]])) or None
+        max_rate = settings["record_max_rate_mev"]
 
         out_dir = os.path.join(session, name)
         start_us = time.time_ns() // 1000
@@ -110,10 +110,11 @@ def record(serial, name, session, status):
             "host_start_us": start_us,
             "width": width,
             "height": height,
-            "trigger_in": config.EVENT_TRIGGER_IN,
-            "masked_pixels": hot_pixels,
-            "max_rate_ev_s": config.EVENT_RECORD_MAX_RATE,
+            "trigger_in": settings["trigger_in"],
+            "masked_pixels": report["readback"]["masked_pixels"],
+            "max_rate_ev_s": None if max_rate is None else max_rate * 1e6,
             "usb_speeds_mbps": evk4_usb_speeds_mbps(),
+            "settings": report,
         }
         with open(base + ".json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -166,15 +167,17 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
 
     status = Status(args.session, name)
+    settings = store.load("event")
     slow_links = [s for s in evk4_usb_speeds_mbps() if s < 5000]
     if slow_links:
-        status.warning = f"EVK4 connected at {slow_links} Mbps (USB2): events may be dropped, use a USB3 port"
+        status.link_warning = status.warning = (f"EVK4 connected at {slow_links} Mbps (USB2): "
+                                                "events may be dropped, use a USB3 port")
         print(f"WARNING: {status.warning}")
 
     # Never fall back to fake frames: on failure report the error and reconnect.
     while not stop_requested.is_set():
         try:
-            record(serial, name, args.session, status)
+            record(serial, name, args.session, status, settings)
         except Exception as e:
             traceback.print_exc()
             status.error = str(e)

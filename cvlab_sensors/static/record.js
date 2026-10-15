@@ -3,8 +3,9 @@
 
 const API = '/record/api';
 const PREVIEW_MS = 600;
-// Aspect ratio of each preview: RGB full frame (ROI), event sensor, Livox virtual camera, Hesai panorama
-const ASPECT = {rgb_left: '1960 / 1228', rgb_right: '1960 / 1228', event_left: '16 / 9', event_right: '16 / 9',
+// Aspect ratio of each preview: RGB full frame (ROI, from the settings), event sensor, Livox virtual camera, Hesai panorama
+const RGB_ASPECT = `${RGB_SIZE[0]} / ${RGB_SIZE[1]}`;
+const ASPECT = {rgb_left: RGB_ASPECT, rgb_right: RGB_ASPECT, event_left: '16 / 9', event_right: '16 / 9',
                 lidar_livox: '15 / 4', lidar_hesai: '9 / 1'};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -75,7 +76,34 @@ async function updateStatus() {
         document.getElementById(`error-${output}`).textContent = s.running ? (s.error || '') : '';
         document.getElementById(`dot-${output}`).className = 'dot ' + (!s.running ? '' : s.error ? 'bad' : s.active ? 'ok' : 'warn');
     }
+    renderSettings(status.settings, running);
     if (status.message) setMessage(status.message, 'warn');
+}
+
+// Settings the recorders use: changed from the defaults, older than the saved ones, not applied
+function renderSettings(settings, running) {
+    const lines = [];
+    for (const s of ['rgb', 'event'].map(group => settings[group])) {
+        const changed = s.changed.length ? s.changed.map(escapeHtml).join(', ') : 'defaults';
+        const at = s.saved_at ? ` <span class="muted">(saved ${s.saved_at.replace('T', ' ')})</span>` : '';
+        lines.push(`<div><strong>${s.label}:</strong> ${changed}${at}</div>`);
+        if (s.stale.length) {
+            lines.push(`<div class="banner pending">⚠ <strong>${s.stale.join(', ')}</strong> ${s.stale.length === 1 ? 'records' : 'record'}
+                with older settings: the changes saved since the start apply to the next recording (stop and start ${escapeHtml(s.label)}).</div>`);
+        }
+        for (const note of s.notes) lines.push(`<div class="banner pending">⚠ Not applied as saved: ${escapeHtml(note)}</div>`);
+    }
+    const prefix = running ? '' : '<div class="muted">The next recording uses:</div>';
+    const html = prefix + lines.join('');
+    const el = document.getElementById('settings-summary');
+    if (el.dataset.html !== html) {
+        el.innerHTML = html;
+        el.dataset.html = html;
+    }
+}
+
+function escapeHtml(text) {
+    return String(text).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
 }
 
 async function previewLoop(output) {

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor Settings</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='calibration.css') }}">
+</head>
+<body>
+    <header>
+        <div class="title">
+            <a class="back" href="/">← Tools</a>
+            <h1>Sensor settings</h1>
+            <span class="muted">Saved in <code>{{ settings_file }}</code> · a sensor reads them when it opens</span>
+        </div>
+        <nav class="tabs" id="tabs">
+            {% for group, label in groups %}
+            <button class="tab" data-group="{{ group }}">{{ label }}</button>
+            {% endfor %}
+        </nav>
+    </header>
+
+    <main>
+        <div class="banner next-start">
+            <strong>Changes apply at the next start.</strong>
+            Saving does not change a running sensor: each one uses the saved settings the next time it opens
+            (next recording, next calibration capture, or the preview below once restarted).
+        </div>
+        <div id="banners"></div>
+
+        {% for group, label in groups %}
+        <div class="settings-layout" id="group-{{ group }}" hidden>
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>{{ label }}</h2>
+                    <span class="muted" id="saved-at-{{ group }}"></span>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn-capture" id="save-{{ group }}">Save <span class="btn-note">applies at next start</span></button>
+                    <button class="btn-secondary" id="discard-{{ group }}">Discard edits</button>
+                    <button class="btn-secondary" id="reset-{{ group }}">Reset to defaults</button>
+                    <span class="message" id="message-{{ group }}"></span>
+                </div>
+                <div class="settings-legend muted">
+                    <span><span class="badge edited">unsaved</span> edited here, not saved</span>
+                    <span><span class="badge pending">applies at next start</span> saved, the camera still runs with the value shown</span>
+                </div>
+                <ul class="settings-warnings" id="warnings-{{ group }}"></ul>
+                <div class="table-wrap">
+                    <table class="settings-table">
+                        <thead>
+                            <tr>
+                                <th>Setting</th><th>Value</th><th>Default</th>
+                                {% for output in outputs[group] %}<th>{{ output_labels[output] }} runs with</th>{% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody id="fields-{{ group }}"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="settings-previews">
+                {% for output in outputs[group] %}
+                <div class="camera">
+                    <div class="camera-header">
+                        <span class="dot" id="dot-{{ output }}"></span>
+                        <h2>{{ output_labels[output] }}</h2>
+                        <span class="muted" id="rate-{{ output }}"></span>
+                    </div>
+                    <div class="camera-error" id="state-{{ output }}"></div>
+                    <div class="replay-stage">
+                        <div class="placeholder" id="placeholder-{{ output }}">Not open</div>
+                        <img id="live-{{ output }}" alt="">
+                    </div>
+                </div>
+                {% endfor %}
+                <p class="muted">
+                    {% if group == 'event' %}Newest 33 ms of events: ON white, OFF blue. The preview uses the live tools rate cap.
+                    {% else %}Live frames at the preview size (the recordings are full resolution).{% endif %}
+                </p>
+            </section>
+        </div>
+        {% endfor %}
+    </main>
+
+    <script>
+        const GROUPS = {{ groups | tojson }};
+        const FIELDS = {{ fields | tojson }};
+        const OUTPUTS = {{ outputs | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='settings.js') }}"></script>
+</body>
+</html>

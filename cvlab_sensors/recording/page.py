@@ -20,6 +20,8 @@ from cvlab_sensors.recording.recorders import (build_recorders, check_recorders_
                                        free_disk_gb, save_session)
 from cvlab_sensors.replay import views
 from cvlab_sensors.sensors.lidar import LidarChunk, list_chunks
+from cvlab_sensors.settings import page as settings_page
+from cvlab_sensors.settings import store
 from cvlab_sensors.web import jpeg
 
 GROUP_LABELS = {"rgb": "RGB left + right", "event": "Event left + right", "lidar_livox": "Livox", "lidar_hesai": "Hesai"}
@@ -134,7 +136,8 @@ class Recording:
                 "groups": {g: {"label": GROUP_LABELS[g], "running": any(r.is_running() for r in rs),
                                "outputs": [o for r in rs for o in r.outputs]} for g, rs in self.groups.items()},
                 "outputs": outputs, "message": self.message,
-                "event_max_rate": config.EVENT_RECORD_MAX_RATE}
+                "settings": settings_page.summary(self),
+                "event_max_rate": _ev_s(store.load("event")["record_max_rate_mev"])}
 
     def preview(self, output):
         """Live preview of an output: the recorder's own small JPEG, or the newest lidar chunk."""
@@ -160,6 +163,10 @@ class Recording:
         return cached[1]
 
 
+def _ev_s(mev):
+    return None if mev is None else mev * 1e6
+
+
 def blueprint(sensors, recording):
     bp = Blueprint("record", __name__, url_prefix="/record")
 
@@ -167,7 +174,8 @@ def blueprint(sensors, recording):
     def page():
         sensors.use(None)   # the recorders open the sensors themselves
         # Lists, not dicts: tojson sorts dict keys and the page shows them in this order
-        return render_template("record.html", outputs=list(OUTPUT_LABELS.items()), groups=list(GROUP_LABELS.items()))
+        return render_template("record.html", outputs=list(OUTPUT_LABELS.items()), groups=list(GROUP_LABELS.items()),
+                               rgb_size=store.rgb_size(store.load("rgb")))
 
     @bp.route("/api/status")
     def status():

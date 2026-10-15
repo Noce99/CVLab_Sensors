@@ -24,6 +24,7 @@ import numpy as np
 from cvlab_sensors import config
 from cvlab_sensors.calibration.common import (UserError, full_frame_intrinsics, is_vertical_baseline, pattern_points,
                                       rectification_check_image, rectify_pair, session_square_size, stereo_rectify_maps)
+from cvlab_sensors.settings import store
 
 CAPTURES_PATH = str(config.CALIBRATION_DIR / "rgb_event" / "captures")
 RESULTS_PATH = str(config.CALIBRATION_DIR / "rgb_event" / "results")
@@ -275,7 +276,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         out,
         pipeline_version=PIPELINE_VERSION,
         calibration_image_size=np.array(image_size),
-        rgb_roi_fraction=np.array(config.RGB_ROI_FRACTION),
+        rgb_roi_fraction=np.array(store.rgb_roi()),
         pattern_size=np.array(config.PATTERN_SIZE),
         square_size_mm=square_mm,
         n_boards=len(samples),

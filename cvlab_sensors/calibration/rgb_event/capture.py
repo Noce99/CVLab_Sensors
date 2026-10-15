@@ -21,6 +21,7 @@ from cvlab_sensors.calibration.common import (CaptureError, Samples, draw, find_
 from cvlab_sensors.calibration.rgb_event.solve import CAMERAS, CAPTURES_PATH, DEDUP_PX
 from cvlab_sensors.sensors import events
 from cvlab_sensors.sensors.live import MAX_RGB_DT_MS
+from cvlab_sensors.settings import store
 from cvlab_sensors.web import capture_blueprint, data_url, preview
 
 # RGB pairs searched per capture, newest first: a blinking screen caught while it redraws
@@ -168,7 +169,7 @@ class RgbEventCapture:
                     # Full resolution RGB, to re-process with other settings later
                     for cam, image in rgb_full.items():
                         cv2.imwrite(os.path.join(sample, f"{cam}_full.png"), cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
-                                    [cv2.IMWRITE_PNG_COMPRESSION, config.RGB_PNG_COMPRESSION])
+                                    [cv2.IMWRITE_PNG_COMPRESSION, store.load("rgb")["png_compression"]])
 
                 result["saved"] = self.samples.add(corners, images, log, save_full)
         return result

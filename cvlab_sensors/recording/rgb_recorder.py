@@ -6,6 +6,8 @@ Writes <session>/rgb_{left,right}/<host_time_us>.png, plus
   <session>/status/rgb_{left,right}.json   health, once per second
   <session>/previews/rgb_{left,right}.jpg  small preview, twice per second
   <session>/rgb_clock_sync.csv             camera <-> host clock offsets
+  <session>/settings/rgb_{left,right}.json the camera settings applied (and read back)
+The settings (Settings page) are read once at start: changes saved later apply to the next recording.
 Stop with SIGINT/SIGTERM: the frames still queued are written before exiting.
 """
 
@@ -23,6 +25,7 @@ from pypylon import pylon
 
 from cvlab_sensors import config
 from cvlab_sensors.sensors.basler import CAMERA_NAMES, measure_clock_offset, open_cameras, ptp_state
+from cvlab_sensors.settings import store
 from cvlab_sensors.status import RateCounter, Throttle, write_json_atomic, write_preview_atomic
 
 CLOCK_SYNC_PERIOD_S = 10
@@ -120,8 +123,8 @@ class StatusReporter:
 # WRITERS
 # ============================================================================
 
-def writer_loop(frames, status):
-    params = [cv2.IMWRITE_PNG_COMPRESSION, config.RGB_PNG_COMPRESSION]
+def writer_loop(frames, status, png_compression):
+    params = [cv2.IMWRITE_PNG_COMPRESSION, png_compression]
     while True:
         item = frames.get()
         if item is None:
@@ -140,9 +143,14 @@ def writer_loop(frames, status):
 # ACQUISITION
 # ============================================================================
 
-def record(session, frames, status, args, sync_log):
-    cameras = open_cameras()
+def record(session, frames, status, args, sync_log, settings):
+    cameras, reports = open_cameras(settings)
     try:
+        for name, report in zip(CAMERA_NAMES, reports):
+            store.write_applied(session, name, report)
+        notes = [f"{name}: {note}" for name, report in zip(CAMERA_NAMES, reports) for note in report["notes"]]
+        if notes:
+            status.set_warning("; ".join(notes))
         require_ptp = config.RGB_REQUIRE_PTP and not args.allow_unsynced
         # When unsynced recording is allowed, only give PTP a few seconds to lock
         timeout = args.ptp_timeout if require_ptp else min(args.ptp_timeout, 5)
@@ -228,8 +236,9 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
 
     status = StatusReporter(args.session)
+    settings = store.load("rgb")
     frames = queue.Queue(maxsize=config.RGB_QUEUE_SIZE)
-    writers = [threading.Thread(target=writer_loop, args=(frames, status))
+    writers = [threading.Thread(target=writer_loop, args=(frames, status, settings["png_compression"]))
                for _ in range(config.RGB_WRITER_THREADS)]
     for w in writers:
         w.start()
@@ -240,7 +249,7 @@ def main():
             # Never fall back to fake frames: on failure report the error and reconnect.
             while not stop_requested.is_set():
                 try:
-                    record(args.session, frames, status, args, sync_log)
+                    record(args.session, frames, status, args, sync_log, settings)
                 except Exception as e:
                     traceback.print_exc()
                     status.set_error(str(e))

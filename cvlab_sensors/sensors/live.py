@@ -1,7 +1,9 @@
 """Live sensors for the capture tools: the Basler pair, the two EVK4s, the Livox HAP and the Hesai XT32.
 
 SensorManager opens what the current capture page needs and releases the rest: a camera can be
-opened by one process only, so nothing may be recording (see the Record page).
+opened by one process only, so nothing may be recording (see the Record page). Each sensor takes a
+snapshot of its settings (cvlab_sensors.settings.store) when it opens; a sensor whose snapshot is
+older than the saved settings is reopened by the next page that uses it.
 """
 
 import collections
@@ -19,6 +21,7 @@ import numpy as np
 from cvlab_sensors import config
 from cvlab_sensors.sensors import events
 from cvlab_sensors.sensors.lidar import LidarChunk, list_chunks
+from cvlab_sensors.settings import store
 from cvlab_sensors.status import Throttle
 
 RETRY_DELAY_S = 2.0
@@ -57,8 +60,12 @@ class RgbCameras:
         self.rate = [0.0, 0.0]
         self.thread = None
         self.stopping = threading.Event()
+        self.settings = None   # "rgb" settings of the current opening
+        self.reports = [None, None]
 
     def start(self):
+        self.settings = store.load("rgb")
+        self.reports = [None, None]
         self.stopping.clear()
         self.error = "starting"
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -73,6 +80,8 @@ class RgbCameras:
             for frames in self.frames:
                 frames.clear()
         self.rate = [0.0, 0.0]
+        self.settings = None
+        self.reports = [None, None]
 
     def running(self):
         return self.thread is not None
@@ -91,7 +100,7 @@ class RgbCameras:
 
         from cvlab_sensors.sensors.basler import measure_clock_offset, open_cameras, ptp_state
 
-        cameras = open_cameras()
+        cameras, self.reports = open_cameras(self.settings)
         try:
             offsets = [measure_clock_offset(camera)[0] for camera in cameras]
             last_sync = last_ptp = 0.0
@@ -134,6 +143,10 @@ class RgbCameras:
         with self.lock:
             return self.frames[idx][-1] if self.frames[idx] else None
 
+    def applied(self, idx):
+        """Applied settings report of a camera (cvlab_sensors.settings.store.applied_report), None before it opens."""
+        return self.reports[idx]
+
     def latest_pairs(self, n):
         """Up to n (t_left, left, t_right, right) pairs, newest first, each with the right
         frame closest in time to the left one."""
@@ -168,9 +181,11 @@ class RgbCameras:
 class EventCamera(threading.Thread):
     """Streams one EVK4, keeping the newest events and a camera -> host clock mapping."""
 
-    def __init__(self, serial):
+    def __init__(self, serial, settings):
         super().__init__(daemon=True)
         self.serial = serial
+        self.settings = settings   # "event" settings
+        self.report = None         # what the camera applied
         self.lock = threading.Lock()
         self.batches = collections.deque()        # event arrays, camera time
         self.sync = collections.deque(maxlen=EVENT_SYNC_PAIRS)   # host_us - camera_us
@@ -191,12 +206,11 @@ class EventCamera(threading.Thread):
         from metavision_core.event_io import EventsIterator
         from metavision_core.event_io.raw_reader import initiate_device
 
-        from cvlab_sensors.sensors.evk4 import DELTA_T_US, limit_event_rate, mask_hot_pixels
+        from cvlab_sensors.sensors.evk4 import DELTA_T_US, configure
 
         device = initiate_device(path=self.serial, do_time_shifting=False)
         try:
-            mask_hot_pixels(device, self.serial)
-            limit_event_rate(device, config.EVENT_CALIBRATION_MAX_RATE)
+            self.report = configure(device, self.serial, self.settings, self.settings["calibration_max_rate_mev"])
             iterator = EventsIterator.from_device(device=device, delta_t=DELTA_T_US)
             height, width = iterator.get_size()
             self.size = (width, height)
@@ -257,7 +271,7 @@ class EventCamera(threading.Thread):
         if (self.latest_t() or 0) < cam_us:
             lag_ms = (cam_us - (self.latest_t() or 0)) / 1e3 + EVENT_WAIT_S * 1e3
             raise RuntimeError(f"its events arrive {lag_ms:.0f} ms late ({self.rate:.0f} Mev/s): "
-                               "lower EVENT_CALIBRATION_MAX_RATE in cvlab_sensors/config.py")
+                               "lower the live tools rate cap on the Settings page")
 
     def events_before(self, host_us, duration_us):
         """Raw events of the duration_us ending at host_us (to debug failed captures)."""
@@ -272,17 +286,29 @@ class EventCamera(threading.Thread):
             return None
         return t + offset, events.calibration_frame(self.window(t), *self.size)
 
+    def preview_frame(self, window_us=33_000):
+        """ON / OFF image of the newest events (white / orange), or None."""
+        t = self.latest_t()
+        if t is None or self.size is None:
+            return None
+        return events.colored_frame(self.window(t, window_us), *self.size)
+
+    def applied(self):
+        return self.report
+
     def status(self):
-        cap = config.EVENT_CALIBRATION_MAX_RATE
-        capped = cap is not None and self.rate * 1e6 > 0.9 * cap
+        cap = self.settings["calibration_max_rate_mev"]
+        capped = cap is not None and self.rate > 0.9 * cap
+        notes = self.report["notes"] if self.report else []
+        warning = (f"event rate at the {cap:.0f} Mev/s cap: the camera is dropping events "
+                   "(flickering light?)" if capped else None)
         return {"rate": round(self.rate, 2), "unit": "Mev/s", "error": self.error,
-                "warning": f"event rate at the {cap / 1e6:.0f} Mev/s cap: the camera is dropping events "
-                           "(flickering light?)" if capped else None}
+                "warning": "; ".join(filter(None, [warning, *notes])) or None}
 
 
-def event_camera_process(serial, conn):
+def event_camera_process(serial, settings, conn):
     """Child process: streams one EVK4 and answers EventCamera method calls."""
-    camera = EventCamera(serial)
+    camera = EventCamera(serial, settings)
     camera.start()
     while True:
         try:
@@ -307,11 +333,14 @@ class EventCameraProcess:
         self.lock = threading.Lock()
         self.conn = None
         self.process = None
+        self.settings = None   # "event" settings of the current opening
 
     def start(self):
+        self.settings = store.load("event")
         context = multiprocessing.get_context("spawn")
         self.conn, child = context.Pipe()
-        self.process = context.Process(target=event_camera_process, args=(self.serial, child), daemon=True)
+        self.process = context.Process(target=event_camera_process, args=(self.serial, self.settings, child),
+                                       daemon=True)
         self.process.start()
 
     def stop(self):
@@ -320,6 +349,7 @@ class EventCameraProcess:
             self.process.terminate()
             self.process.join(5)
             self.process = None
+        self.settings = None
 
     def running(self):
         return self.process is not None
@@ -342,6 +372,12 @@ class EventCameraProcess:
 
     def events_before(self, host_us, duration_us):
         return self.call("events_before", host_us, duration_us)
+
+    def preview_frame(self):
+        return self.call("preview_frame")
+
+    def applied(self):
+        return self.call("applied") if self.process is not None else None
 
     def status(self):
         if self.process is None:
@@ -500,7 +536,7 @@ class SensorManager:
     event cameras takes several seconds)."""
 
     NEEDS = {"rgb_event": {"rgb", "event"}, "rgb_livox": {"rgb", "livox"}, "livox_hesai": {"livox", "hesai"},
-             None: set()}
+             "settings": {"rgb", "event"}, None: set()}
 
     def __init__(self):
         stop_stale_recorders()
@@ -531,13 +567,14 @@ class SensorManager:
             if tool != self.tool:   # superseded by a newer request
                 return
             needed = self.NEEDS[tool]
-            if "event" not in needed:
-                for cam in self.event.values():
+            # Opened with settings saved since: reopen them with the new ones
+            for cam in self.event.values():
+                if "event" not in needed or (cam.running() and cam.settings != store.load("event")):
                     cam.stop()
             for lidar in ("livox", "hesai"):
                 if lidar not in needed and getattr(self, lidar).running():
                     getattr(self, lidar).stop()
-            if "rgb" not in needed and self.rgb.running():
+            if self.rgb.running() and ("rgb" not in needed or self.rgb.settings != store.load("rgb")):
                 self.rgb.stop()
             if "rgb" in needed and not self.rgb.running():
                 self.rgb.start()

@@ -52,6 +52,28 @@ def reflectivity_image(xyz, intensity, size=config.LIVOX_IMAGE_SIZE):
     return image.reshape(h, w)
 
 
+def depth_image(xyz, size=config.LIVOX_IMAGE_SIZE, near_mm=500, far_mm=30000, dot_px=1):
+    """BGR (H, W) image of the nearest point per pixel, magma colour map on a log scale from near_mm
+    (bright) to far_mm (dark purple), black where no point falls. The scale is fixed so a colour is
+    the same distance in every frame and for every lidar. dot_px > 1 draws every point as a
+    dot_px square (the nearest one wins where dots overlap), for sparse lidars."""
+    w, h = size
+    flat, idx = pixels(xyz, size)
+    zbuffer = np.full(h * w, np.inf, np.float32)
+    np.minimum.at(zbuffer, flat, xyz[idx, 2].astype(np.float32))
+    if dot_px > 1:
+        zbuffer = cv2.erode(zbuffer.reshape(h, w), np.ones((dot_px, dot_px), np.uint8),
+                            borderValue=np.inf).reshape(-1)
+    valid = np.isfinite(zbuffer)
+    level = np.zeros(h * w, np.uint8)
+    # 255 near -> 32 far: the darkest end of magma is kept for "no point"
+    t = np.log(np.clip(zbuffer[valid], near_mm, far_mm) / near_mm) / np.log(far_mm / near_mm)
+    level[valid] = np.rint(255 - t * (255 - 32)).astype(np.uint8)
+    colour = cv2.applyColorMap(level.reshape(h, w), cv2.COLORMAP_MAGMA)
+    colour[~valid.reshape(h, w)] = 0
+    return colour
+
+
 def find_lidar_corners(image):
     """(corners (N, 2) canonically ordered, white level) of the chessboard in a reflectivity image,
     or (None, None).

@@ -29,6 +29,7 @@ from cvlab_sensors.web import data_url, jpeg, preview
 
 SAVE_VOXEL_M = 0.01             # stops are saved on this grid (the finest registration level is 2 cm)
 PREVIEW_WINDOW_S = 2
+DOT_PX = {"livox": 1, "hesai": 5}   # depth previews: the Hesai rings are too sparse for 1 px points
 MIN_CAPTURE_S, MAX_CAPTURE_S = 3, 20
 ARRIVAL_WAIT_S = 3.0            # max wait for the points of the end of the capture
 MOVED = (10.0, 0.1)             # mm, deg between the two halves of the Livox points: the rig moved
@@ -38,7 +39,7 @@ TOOL = {
     "id": "livox_hesai",
     "title": "Livox-Hesai calibration data",
     "cameras": CAMERAS,
-    "labels": {"livox": "Livox reflectivity", "hesai": "Hesai reflectivity"},
+    "labels": {"livox": "Livox depth", "hesai": "Hesai depth"},
     "preview_delay_ms": {"livox": 500, "hesai": 500},
     "aspect": {cam: list(config.LIVOX_IMAGE_SIZE) for cam in CAMERAS},
     "capture_s": config.LIVOX_HESAI_CAPTURE_S,
@@ -71,8 +72,8 @@ class LivoxHesaiCapture:
         end_us = stream.latest_us()
         if end_us is None:
             return None
-        xyz, intensity, _ = stream.points_between(end_us - PREVIEW_WINDOW_S * 1_000_000, end_us)
-        return end_us, lidar_image.display(lidar_image.reflectivity_image(xyz, intensity))
+        xyz, _, _ = stream.points_between(end_us - PREVIEW_WINDOW_S * 1_000_000, end_us)
+        return end_us, lidar_image.depth_image(xyz, dot_px=DOT_PX[cam])
 
     def stops(self):
         out = []
@@ -129,9 +130,9 @@ class LivoxHesaiCapture:
             "moved_mm": round(moved_mm, 1),
             "moved_deg": round(moved_deg, 3),
         }
-        images = {cam: lidar_image.reflectivity_image(xyz, intensity) for cam, (xyz, intensity, _) in points.items()}
+        images = {cam: lidar_image.depth_image(xyz, dot_px=DOT_PX[cam]) for cam, (xyz, _, _) in points.items()}
         result = {"saved": None, "moved": moved, "check": check,
-                  "cameras": {cam: {"image": data_url(preview(lidar_image.display(images[cam]))),
+                  "cameras": {cam: {"image": data_url(preview(images[cam])),
                                     "points": check["points"][cam]} for cam in CAMERAS}}
         if moved:
             return result
@@ -145,7 +146,7 @@ class LivoxHesaiCapture:
                 f.create_dataset("xyz_camera_m", data=clouds[cam].astype(np.float32))
                 f.attrs["voxel_m"] = SAVE_VOXEL_M
                 f.attrs["host_us"] = [start_us, end_us]
-            cv2.imwrite(os.path.join(stop, f"{cam}.png"), lidar_image.display(images[cam]))
+            cv2.imwrite(os.path.join(stop, f"{cam}.png"), images[cam])
         with open(os.path.join(stop, "check.json"), "w") as f:
             json.dump(check, f, indent=1)
         with open(os.path.join(stop, "log.log"), "w") as f:

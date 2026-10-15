@@ -4,6 +4,7 @@ Usage: python -m cvlab_sensors [--port 5001]   (from the repo root)
 Open http://<NUC_IP>:5001 and pick a tool:
   - Record                            the recorders of every sensor, save / discard the session
   - Replay                            recorded sessions on a timeline, sensors alone or on RGB left
+  - Settings                          frame and event camera settings, applied when a sensor opens
   - Get RGB-event calibration data    live capture of the chessboard in the 2 Basler + 2 EVK4
   - Calibrate RGB <-> event           intrinsics + extrinsics of the four cameras
   - Get RGB-Livox calibration data    live capture of the chessboard in RGB-left + Livox reflectivity
@@ -34,6 +35,7 @@ from cvlab_sensors.calibration.rgb_livox import solve as rgb_livox_solve
 from cvlab_sensors.calibration.rig import installed_rig
 from cvlab_sensors.recording import page as record
 from cvlab_sensors.replay import page as replay
+from cvlab_sensors.settings import page as settings_page
 from cvlab_sensors.sensors.live import SensorManager
 
 SOLVERS = {
@@ -92,6 +94,7 @@ def create_app():
     app.register_blueprint(livox_hesai_capture.blueprint(sensors))
     app.register_blueprint(record.blueprint(sensors, recording))
     app.register_blueprint(replay.blueprint(sensors, replay.Replay(), recording))
+    app.register_blueprint(settings_page.blueprint(sensors, recording))
     for tool_id, solver in SOLVERS.items():
         tool = {"id": tool_id, "title": solver["title"], "cameras": solver["cameras"], "min_boards": solver["min_boards"],
                 "capture_url": solver["capture_url"], "sensors": sensors,
@@ -105,6 +108,7 @@ def create_app():
         sensors.use(None)
         return render_template("home.html", summaries={tool_id: tool_summary(tool_id) for tool_id in SOLVERS},
                                rig=installed_rig(), recording=recording.status(),
+                               settings=settings_page.summary(recording),
                                n_sessions=len(replay.find_sessions()))
 
     @app.route("/pattern")

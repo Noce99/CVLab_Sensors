@@ -31,6 +31,7 @@ from cvlab_sensors.calibration.common import (UserError, full_frame_intrinsics, 
                                       stereo_rectify_maps)
 from cvlab_sensors.calibration.rgb_event.solve import camera_poses, deduplicate, monotonic_radius
 from cvlab_sensors.calibration.rgb_livox import lidar_image
+from cvlab_sensors.settings import store
 
 CAPTURES_PATH = str(config.CALIBRATION_DIR / "rgb_livox" / "captures")
 RESULTS_PATH = str(config.CALIBRATION_DIR / "rgb_livox" / "results")
@@ -193,7 +194,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         out,
         pipeline_version=PIPELINE_VERSION,
         calibration_image_size=np.array(image_size),
-        rgb_roi_fraction=np.array(config.RGB_ROI_FRACTION),
+        rgb_roi_fraction=np.array(store.rgb_roi()),
         livox_image_size=np.array(config.LIVOX_IMAGE_SIZE),
         pattern_size=np.array(config.PATTERN_SIZE),
         square_size_mm=square_mm,

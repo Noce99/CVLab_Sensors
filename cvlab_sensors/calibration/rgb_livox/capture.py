@@ -21,6 +21,7 @@ from cvlab_sensors import config
 from cvlab_sensors.calibration.common import CaptureError, Samples, draw, find_corners_variants, to_calibration_size
 from cvlab_sensors.calibration.rgb_livox import lidar_image
 from cvlab_sensors.calibration.rgb_livox.solve import CAMERAS, CAPTURES_PATH, DEDUP_PX
+from cvlab_sensors.settings import store
 from cvlab_sensors.web import capture_blueprint, data_url, preview
 
 STILL_BOARD_PX = 1.5            # RGB corners closer than this over the capture: the board did not move
@@ -147,7 +148,7 @@ class RgbLivoxCapture:
 
                 def save_extra(sample):
                     cv2.imwrite(os.path.join(sample, "rgb_left_full.png"), cv2.cvtColor(full, cv2.COLOR_RGB2BGR),
-                                [cv2.IMWRITE_PNG_COMPRESSION, config.RGB_PNG_COMPRESSION])
+                                [cv2.IMWRITE_PNG_COMPRESSION, store.load("rgb")["png_compression"]])
                     cv2.imwrite(os.path.join(sample, "livox_raw.png"), reflectivity)
                     # The points, to re-render with other settings and for the board plane check of solve.py
                     with h5py.File(os.path.join(sample, "livox_points.h5"), "w") as f:

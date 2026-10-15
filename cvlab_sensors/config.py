@@ -1,4 +1,8 @@
-"""Single source of truth for paths, sensor addresses and acquisition settings."""
+"""Single source of truth for paths, sensor addresses and acquisition settings.
+
+The sensor settings marked "(default: Settings page)" are only defaults: the values saved on the
+Settings page (SETTINGS_FILE, see cvlab_sensors.settings.store) override them.
+"""
 
 import os
 from pathlib import Path
@@ -20,6 +24,9 @@ DATA_DIR = Path(os.environ.get("CVLAB_DATA_DIR", REPO_ROOT / "data")).resolve()
 STAGING_DIR = Path(os.environ.get("CVLAB_STAGING_DIR", DATA_DIR / "staging")).resolve()
 SESSIONS_DIR = Path(os.environ.get("CVLAB_SESSIONS_DIR", DATA_DIR / "sessions")).resolve()
 SESSION_NAME_FORMAT = "%Y_%m_%d__%H_%M_%S"
+
+# Sensor settings saved on the Settings page (only the values that differ from the defaults here)
+SETTINGS_FILE = DATA_DIR / "settings" / "active.json"
 
 # Calibration captures and results: <CALIBRATION_DIR>/<tool>/{captures,results}/
 CALIBRATION_DIR = DATA_DIR / "calibration"
@@ -43,7 +50,7 @@ SESSION_SUBFOLDERS = [
     "rgb_left", "rgb_right",
     "event_left", "event_right",
     "lidar_livox", "lidar_hesai",
-    "logs", "previews", "status",
+    "logs", "previews", "status", "settings",
 ]
 
 # ============================================================================
@@ -59,20 +66,20 @@ RGB_STREAM = {
     1: {"destination": "192.168.1.52", "port": 5555},
 }
 
-RGB_FPS = 10
+RGB_FPS = 10   # (default: Settings page)
 # Trigger every frame from the PTP clock (Basler Periodic Signal): with both cameras
 # PTP-locked, left and right expose at the same instant, on multiples of 1/RGB_FPS s.
-RGB_PTP_TRIGGER = True
+RGB_PTP_TRIGGER = True   # (default: Settings page)
 # Region of interest, as a fraction of the full 2448x2048 sensor (centered)
 RGB_SENSOR_SIZE = (2448, 2048)
-RGB_ROI_FRACTION = (0.8, 0.6)
+RGB_ROI_FRACTION = (0.8, 0.6)   # (default: Settings page)
 RGB_PIXEL_FORMAT = "RGB8"
 
 # The rig is on a moving car: keep exposures short and let the gain compensate.
-RGB_EXPOSURE_LOWER_US = 20.0
-RGB_EXPOSURE_UPPER_US = 4000.0
-RGB_GAIN_UPPER_DB = 24.0
-RGB_AUTO_TARGET_BRIGHTNESS = 0.5   # 0-1, mean level the auto exposure/gain aims for (camera default: 0.3)
+RGB_EXPOSURE_LOWER_US = 20.0   # (default: Settings page)
+RGB_EXPOSURE_UPPER_US = 4000.0   # (default: Settings page)
+RGB_GAIN_UPPER_DB = 24.0   # (default: Settings page)
+RGB_AUTO_TARGET_BRIGHTNESS = 0.5   # (default: Settings page) 0-1, mean level the auto exposure/gain aims for (camera default: 0.3)
 
 # PTP: cameras must be PTP slaves with an offset below this before grabbing
 RGB_REQUIRE_PTP = True
@@ -80,7 +87,7 @@ RGB_PTP_MAX_OFFSET_NS = 1_000_000
 RGB_PTP_TIMEOUT_S = 60
 
 # Saving
-RGB_PNG_COMPRESSION = 1     # 0-9, low = fast
+RGB_PNG_COMPRESSION = 1     # (default: Settings page) 0-9, low = fast
 RGB_WRITER_THREADS = 6
 RGB_QUEUE_SIZE = 60         # frames waiting to be written; beyond this frames are dropped (and counted)
 
@@ -92,14 +99,14 @@ EVENT_LEFT_SERIAL = "00051962"
 EVENT_RIGHT_SERIAL = "00051961"
 # Record the EVK4 trigger input (MAIN channel). Wire a Basler output line
 # (LineSource = ExposureActive) into it to timestamp every RGB exposure in the event clock.
-EVENT_TRIGGER_IN = False
+EVENT_TRIGGER_IN = False   # (default: Settings page)
 # Hardware event rate cap (ERC) of each EVK4 in the live calibration tool, in events/s.
 # Flickering scenes reach 60 Mev/s, more than the tool can render live. Beyond the cap the
 # sensor drops events evenly in time (None = no cap).
-EVENT_CALIBRATION_MAX_RATE = 20_000_000
+EVENT_CALIBRATION_MAX_RATE = 20_000_000   # (default: Settings page)
 # The same for recordings: uncapped, a flickering lab reached ~38 Mev/s per camera
 # (~150 MB/s of raw data each, events delivered late) on 2026-10-09.
-EVENT_RECORD_MAX_RATE = 20_000_000
+EVENT_RECORD_MAX_RATE = 20_000_000   # (default: Settings page)
 # Pixels masked in hardware (x, y). Find them with python -m cvlab_sensors.tools.find_hot_pixels.
 EVENT_HOT_PIXELS = {
     EVENT_LEFT_SERIAL: [(1186, 491), (397, 348), (798, 380)],  # 87% of all events on 2026-10-09
