@@ -3,7 +3,7 @@
 One web app drives the sensor rig: record sessions, replay them, and calibrate the sensors.
 
 ```
-venv_3_12/bin/python -m cvlab          # from the repo root, then open http://<NUC_IP>:5001
+venv_3_12/bin/python -m cvlab_sensors          # from the repo root, then open http://<NUC_IP>:5001
 ```
 
 | Computers | ssh                      |
@@ -23,8 +23,8 @@ venv_3_12/bin/python -m cvlab          # from the repo root, then open http://<N
 
 ## Repository layout
 ```
-cvlab/                     Python package: the web app and everything it uses
-├── __main__.py, app.py    python -m cvlab: Flask app, home page, tool registry
+cvlab_sensors/             Python package: the web app and everything it uses
+├── __main__.py, app.py    python -m cvlab_sensors: Flask app, home page, tool registry
 ├── config.py              every setting: IPs, serials, exposure, paths, calibration parameters
 ├── web.py                 shared page code: image helpers, background jobs, capture / solve routes
 ├── status.py              status JSON and preview files written by the recorders
@@ -51,7 +51,7 @@ data/                      everything the app writes (not in git)
 ├── stream/                lidar chunks of the live capture pages (emptied as read)
 └── legacy/                data of the old scripts, kept for reference
 ```
-Every Python entry point runs as a module from the repo root (`python -m cvlab...`).
+Every Python entry point runs as a module from the repo root (`python -m cvlab_sensors...`).
 
 ## Recording
 Web app → **Record**: start / stop each sensor group, save or discard the session. The live images are
@@ -69,15 +69,15 @@ Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ├── logs/, status/, previews/
 ├── replay_cache/                event frames rendered by the Replay page
 ```
-Readers are in `cvlab/sensors/` (`lidar.py`, `events.py`). Read `.raw` files with
-`cvlab.sensors.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
+Readers are in `cvlab_sensors/sensors/` (`lidar.py`, `events.py`). Read `.raw` files with
+`cvlab_sensors.sensors.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
 which breaks the `.sync.csv` mapping when a camera was opened before the recording started.
 
 The event rate is capped in hardware at `EVENT_RECORD_MAX_RATE` (20 Mev/s per camera): uncapped, a
 flickering lab reached ~38 Mev/s and the events reached the host up to 5 s late.
 **Event cameras must be on USB3** (they are currently on a USB2 hub at 480 Mbps): a single
 camera can produce more than USB2 can carry. Hot pixels are masked in hardware
-(`EVENT_HOT_PIXELS` in `cvlab/config.py`, find them with `python -m cvlab.tools.find_hot_pixels <file.raw>`).
+(`EVENT_HOT_PIXELS` in `cvlab_sensors/config.py`, find them with `python -m cvlab_sensors.tools.find_hot_pixels <file.raw>`).
 
 Before recording the event cameras, the app power-cycles them with `system/reset_event_cameras.sh`
 through `sudo -n`: it needs a sudoers rule such as
@@ -141,13 +141,13 @@ while the Record page records. Each capture page opens the sensors it needs and 
    (`livox_from_hesai`: native Hesai point -> native Livox frame, mm).
 
 The solvers also run from the terminal:
-`python -m cvlab.calibration.rgb_event.solve [folder] [--no-install]`,
-`python -m cvlab.calibration.rgb_livox.solve [folder] [--no-install]`,
-`python -m cvlab.calibration.livox_hesai.solve [folder] [--initial X Y Z] [--no-install]`.
+`python -m cvlab_sensors.calibration.rgb_event.solve [folder] [--no-install]`,
+`python -m cvlab_sensors.calibration.rgb_livox.solve [folder] [--no-install]`,
+`python -m cvlab_sensors.calibration.livox_hesai.solve [folder] [--initial X Y Z] [--no-install]`.
 
 RGB images are center-cropped to 16:9 and resized to 1280x720 before calibration
-(`cvlab.calibration.common.to_calibration_size`): do the same before using the intrinsics, or use
-`cvlab.calibration.common.full_frame_intrinsics` for the full frame.
+(`cvlab_sensors.calibration.common.to_calibration_size`): do the same before using the intrinsics, or use
+`cvlab_sensors.calibration.common.full_frame_intrinsics` for the full frame.
 
 ## Time synchronization (PTP)
 Every Ethernet sensor sits on its own USB network adapter (r8152), which has no
@@ -164,14 +164,14 @@ journalctl -u ptp4l-cvlab -f
   instant (measured: < 0.2 ms apart).
 - **Livox HAP**: needs PTP over L2 (set in `system/ptp4l.conf`); each H5 file stores `time_source`
   (`livox_ptp` when synced).
-- Check everything with `python -m cvlab.tools.check_ptp`.
+- Check everything with `python -m cvlab_sensors.tools.check_ptp`.
 - **Hesai XT32**: keep its clock source on GPS (free running). It cannot follow a two-step PTP
   master (software timestamping is always two-step): its clock jumps by seconds. Its H5 files
-  store `sync` pairs, and `cvlab.sensors.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
+  store `sync` pairs, and `cvlab_sensors.sensors.lidar.LidarChunk.host_timestamps_ns()` maps it to host time.
 - **Event cameras** (USB) are not on PTP: their clock is mapped to the host clock through the
   `*.sync.csv` file written next to each recording. For exact RGB-event sync, wire a Basler output
   line (LineSource = ExposureActive) into the EVK4 trigger input and set `EVENT_TRIGGER_IN = True`
-  in `cvlab/config.py`.
+  in `cvlab_sensors/config.py`.
 
 ## SDKs
 ### Lidar recorders
@@ -194,4 +194,4 @@ Documentation about lidar packets [here](https://github.com/Livox-SDK/Livox-SDK2
 
 ### RGB cameras
 Change the IP using `/opt/pylon/bin/ipconfigurator`, inspect the camera settings using
-`/opt/pylon/bin/pylonviewer` (the app sets them itself, see `cvlab/sensors/basler.py`).
+`/opt/pylon/bin/pylonviewer` (the app sets them itself, see `cvlab_sensors/sensors/basler.py`).
