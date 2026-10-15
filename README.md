@@ -79,7 +79,7 @@ Sessions are recorded in `data/staging/<date>/` and moved to `data/sessions/<dat
 Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ```
 <session>/
-├── rgb_left/, rgb_right/        <host_time_us>.png
+├── rgb_left/, rgb_right/        <host_time_us>.png: BayerRG8 = raw mosaic (1 channel), RGB8 = color
 ├── event_left/, event_right/    <start_us>.raw (+ .sync.csv clock mapping, .json metadata)
 ├── lidar_livox/, lidar_hesai/   <host_time_us>.h5: xyz (mm, float32, native sensor frame),
 │                                timestamp_ns (lidar clock), intensity, sync [lidar_ns, host_ns]
@@ -87,7 +87,22 @@ Recording stops automatically when less than `MIN_FREE_DISK_GB` is free.
 ├── logs/, status/, previews/    logs/host.log: host events during the recording
 ├── replay_cache/                event frames rendered by the Replay page
 ```
-Readers are in `cvlab_sensors/sensors/` (`lidar.py`, `events.py`). Read `.raw` files with
+Readers are in `cvlab_sensors/sensors/` (`lidar.py`, `events.py`, `rgb_image.py`). RGB frames are saved in the
+Settings page pixel format, BayerRG8 by default (a third of RGB8 on the link and on disk): read them with
+`rgb_image.read_bgr`, which demosaics 1-channel PNGs. The camera's RGGB is OpenCV's `COLOR_BayerBG2BGR`
+(OpenCV names Bayer patterns from the second row/column: `BayerRG2BGR` swaps red and blue).
+
+**Disk budget (~80 MB/s)**: the NVMe sustains only ~110-125 MB/s in a plain write test once its write
+cache is full, and less with a recording's mix of files. With both EVK4s at the 20 Mev/s cap (~62 MB/s
+each) plus RGB8 PNGs (~100 MB/s) a recording wrote ~235 MB/s: after ~30 s the Python recorders stalled
+(missed RGB frames, events up to 30 s late and the end of the event recordings lost). In BayerRG8 with an
+8 Mev/s cap (~107 MB/s, events take ~4 B each at that rate) they still stalled after ~18 s. The
+Settings page estimates a recording's write rate from the RGB settings and the event rate cap and warns
+above the budget. The RGB recorder rides out short stalls: its grab loop never writes to disk itself
+(previews, status and logs go through a background thread) and up to `RGB_QUEUE_SIZE` frames wait in
+memory to be written.
+
+Read `.raw` files with
 `cvlab_sensors.sensors.events.open_raw`: Metavision otherwise shifts a file's timestamps so its first event is at 0,
 which breaks the `.sync.csv` mapping when a camera was opened before the recording started.
 

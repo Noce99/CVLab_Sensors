@@ -21,6 +21,7 @@ import numpy as np
 
 from cvlab_sensors import config
 from cvlab_sensors.sensors.lidar import LidarChunk, list_chunks
+from cvlab_sensors.sensors.rgb_image import read_bgr
 from cvlab_sensors.sensors.timesync import ClockMapping
 
 RGB = ("rgb_left", "rgb_right")
@@ -207,7 +208,7 @@ class Session:
         with self.lock:
             image = self.images.get(path)
         if image is None:
-            image = cv2.imread(path)
+            image = read_bgr(path)
             with self.lock:
                 self.images[path] = image
                 if len(self.images) > 8:

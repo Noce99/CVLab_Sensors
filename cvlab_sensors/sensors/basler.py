@@ -102,7 +102,7 @@ def setup_stereo_cameras(camera, values):
     ##########
     # Colors #
     ##########
-    camera.PixelFormat.Value = config.RGB_PIXEL_FORMAT
+    camera.PixelFormat.Value = values["pixel_format"]
     if values["white_balance"] != "unchanged":
         camera.BalanceWhiteAuto.Value = values["white_balance"]
 
@@ -167,6 +167,7 @@ def open_cameras(values):
         for note in notes:
             print(f"WARNING {CAMERA_NAMES[idx]}: {note}")
         cameras[idx].SetCameraContext(idx)
+        cameras[idx].MaxNumBuffer.Value = config.RGB_GRAB_BUFFERS
         cameras[idx].StreamGrabber.TransmissionType.Value = "Multicast"
         cameras[idx].StreamGrabber.DestinationAddr.Value = config.RGB_STREAM[idx]["destination"]
         cameras[idx].StreamGrabber.DestinationPort.Value = config.RGB_STREAM[idx]["port"]

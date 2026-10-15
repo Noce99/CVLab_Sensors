@@ -2,7 +2,8 @@
 
 Usage: rgb.py <session_folder> [--allow-unsynced]
 
-Writes <session>/rgb_{left,right}/<host_time_us>.png, plus
+Writes <session>/rgb_{left,right}/<host_time_us>.png (BayerRG8: the raw mosaic, 1 channel; RGB8:
+color), plus
   <session>/status/rgb_{left,right}.json   health, once per second
   <session>/previews/rgb_{left,right}.jpg  small preview, twice per second
   <session>/rgb_clock_sync.csv             camera <-> host clock offsets
@@ -25,8 +26,9 @@ from pypylon import pylon
 
 from cvlab_sensors import config
 from cvlab_sensors.sensors.basler import CAMERA_NAMES, measure_clock_offset, open_cameras, ptp_state
+from cvlab_sensors.sensors.rgb_image import saved_image, to_bgr
 from cvlab_sensors.settings import store
-from cvlab_sensors.status import RateCounter, Throttle, write_json_atomic, write_preview_atomic
+from cvlab_sensors.status import BackgroundWriter, RateCounter, Throttle, write_json_atomic, write_preview_atomic
 
 CLOCK_SYNC_PERIOD_S = 10
 
@@ -129,9 +131,9 @@ def writer_loop(frames, status, png_compression):
         item = frames.get()
         if item is None:
             return
-        idx, path, rgb = item
+        idx, path, frame = item
         try:
-            if not cv2.imwrite(path, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), params):
+            if not cv2.imwrite(path, saved_image(frame), params):
                 raise IOError(f"cv2.imwrite failed for {path}")
             status.frame_saved(idx)
         except Exception as e:
@@ -143,7 +145,9 @@ def writer_loop(frames, status, png_compression):
 # ACQUISITION
 # ============================================================================
 
-def record(session, frames, status, args, sync_log, settings):
+def record(session, frames, status, args, sync_log, settings, background):
+    """Grab until stopped. Every file write of the grab loop goes through background: a loop
+    waiting on the disk leaves the camera frames uncollected, and they are lost (block id gaps)."""
     cameras, reports = open_cameras(settings)
     try:
         for name, report in zip(CAMERA_NAMES, reports):
@@ -161,12 +165,18 @@ def record(session, frames, status, args, sync_log, settings):
         offsets = [None, None]
 
         def update_offsets():
+            lines = []
             for idx, camera in enumerate(cameras):
                 offsets[idx], uncertainty = measure_clock_offset(camera)
-                sync_log.write(f"{time.time_ns()},{CAMERA_NAMES[idx]},{offsets[idx]},{uncertainty}\n")
-            sync_log.flush()
-            print(f"Clock offsets host-camera: left {offsets[0]} ns, right {offsets[1]} ns, "
-                  f"difference {(offsets[0] - offsets[1]) / 1e6:.3f} ms")
+                lines.append(f"{time.time_ns()},{CAMERA_NAMES[idx]},{offsets[idx]},{uncertainty}\n")
+            message = (f"Clock offsets host-camera: left {offsets[0]} ns, right {offsets[1]} ns, "
+                       f"difference {(offsets[0] - offsets[1]) / 1e6:.3f} ms")
+
+            def write():
+                sync_log.writelines(lines)
+                sync_log.flush()
+                print(message)   # stdout is a log file: the same disk
+            background.submit(write)
 
         update_offsets()
         clock_sync = Throttle(CLOCK_SYNC_PERIOD_S)
@@ -182,7 +192,8 @@ def record(session, frames, status, args, sync_log, settings):
 
         while not stop_requested.is_set():
             if status_throttle.ready():
-                status.write(frames.qsize())
+                queue_size = frames.qsize()
+                background.submit(lambda: status.write(queue_size), key="status")
             if clock_sync.ready():
                 update_offsets()
 
@@ -200,18 +211,16 @@ def record(session, frames, status, args, sync_log, settings):
                 last_block_id[idx] = block_id
 
                 host_us = (grab.GetTimeStamp() + offsets[idx]) // 1000
-                rgb = grab.GetArray().copy()
+                frame = grab.GetArray().copy()   # RGB8, or the BayerRG8 mosaic
             finally:
                 grab.Release()
 
             if previews[idx].ready():
-                try:
-                    write_preview_atomic(os.path.join(session, "previews", f"{CAMERA_NAMES[idx]}.jpg"),
-                                         cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-                except Exception as e:
-                    print(f"WARNING: preview not written: {e}")
+                path = os.path.join(session, "previews", f"{CAMERA_NAMES[idx]}.jpg")
+                background.submit(lambda path=path, frame=frame: write_preview_atomic(path, to_bgr(frame)),
+                                  key=("preview", idx))
             try:
-                frames.put_nowait((idx, os.path.join(folders[idx], f"{host_us}.png"), rgb))
+                frames.put_nowait((idx, os.path.join(folders[idx], f"{host_us}.png"), frame))
             except queue.Full:
                 status.dropped[idx] += 1
     finally:
@@ -238,29 +247,34 @@ def main():
     status = StatusReporter(args.session)
     settings = store.load("rgb")
     frames = queue.Queue(maxsize=config.RGB_QUEUE_SIZE)
+    background = BackgroundWriter()
     writers = [threading.Thread(target=writer_loop, args=(frames, status, settings["png_compression"]))
                for _ in range(config.RGB_WRITER_THREADS)]
     for w in writers:
         w.start()
 
+    # Closed after the background writer, which writes its lines
+    sync_log = open(os.path.join(args.session, "rgb_clock_sync.csv"), "a")
     try:
-        with open(os.path.join(args.session, "rgb_clock_sync.csv"), "a") as sync_log:
-            sync_log.write("host_time_ns,camera,host_minus_camera_ns,uncertainty_ns\n")
-            # Never fall back to fake frames: on failure report the error and reconnect.
-            while not stop_requested.is_set():
-                try:
-                    record(args.session, frames, status, args, sync_log, settings)
-                except Exception as e:
-                    traceback.print_exc()
-                    status.set_error(str(e))
-                    status.write(frames.qsize())
-                    stop_requested.wait(2.0)
+        sync_log.write("host_time_ns,camera,host_minus_camera_ns,uncertainty_ns\n")
+        # Never fall back to fake frames: on failure report the error and reconnect.
+        while not stop_requested.is_set():
+            try:
+                record(args.session, frames, status, args, sync_log, settings, background)
+            except Exception as e:
+                traceback.print_exc()
+                status.set_error(str(e))
+                queue_size = frames.qsize()
+                background.submit(lambda: status.write(queue_size), key="status")
+                stop_requested.wait(2.0)
     finally:
         print(f"Stopping, writing {frames.qsize()} queued frames...")
         for _ in writers:
             frames.put(None)
         for w in writers:
             w.join()
+        background.close()
+        sync_log.close()
         status.write(0)
         print("Done.")
 

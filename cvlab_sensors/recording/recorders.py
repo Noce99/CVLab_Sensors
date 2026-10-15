@@ -71,8 +71,9 @@ class Recorder:
 
     STOP_TIMEOUT_S = 15
 
-    def __init__(self, name, outputs, build_command, writes_status_json):
+    def __init__(self, name, outputs, build_command, writes_status_json, stop_timeout_s=STOP_TIMEOUT_S):
         self.name = name
+        self.stop_timeout_s = stop_timeout_s
         self.outputs = outputs
         self._build_command = build_command
         self._writes_status_json = writes_status_json
@@ -117,9 +118,9 @@ class Recorder:
         if self.process.poll() is None:
             self.process.send_signal(signal.SIGINT)
             try:
-                self.process.wait(timeout=self.STOP_TIMEOUT_S)
+                self.process.wait(timeout=self.stop_timeout_s)
             except subprocess.TimeoutExpired:
-                print(f"WARNING: {self.name} did not stop in {self.STOP_TIMEOUT_S}s, killing it")
+                print(f"WARNING: {self.name} did not stop in {self.stop_timeout_s}s, killing it")
                 self.process.kill()
                 self.process.wait()
         if self._watcher is not None:
@@ -222,7 +223,9 @@ def build_recorders(allow_unsynced=False, hesai_monitor=None):
     return {
         "rgb": [
             Recorder("rgb", ["rgb_left", "rgb_right"],
-                     python_recorder(config.RGB_RECORDER, *rgb_args), writes_status_json=True),
+                     python_recorder(config.RGB_RECORDER, *rgb_args), writes_status_json=True,
+                     # It writes its queued frames before exiting: up to RGB_QUEUE_SIZE on a slow disk
+                     stop_timeout_s=60),
         ],
         "event": [
             Recorder("event_left", ["event_left"],

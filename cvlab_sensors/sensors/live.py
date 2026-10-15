@@ -100,6 +100,7 @@ class RgbCameras:
         from pypylon import pylon
 
         from cvlab_sensors.sensors.basler import measure_clock_offset, open_cameras, ptp_state
+        from cvlab_sensors.sensors.rgb_image import to_rgb
 
         cameras, self.reports = open_cameras(self.settings)
         try:
@@ -128,7 +129,7 @@ class RgbCameras:
                         continue
                     idx = grab.GetCameraContext()
                     host_us = (grab.GetTimeStamp() + offsets[idx]) // 1000
-                    rgb = grab.GetArray().copy()
+                    rgb = to_rgb(grab.GetArray().copy())   # the live tools all take RGB
                 finally:
                     grab.Release()
                 counts[idx] += 1

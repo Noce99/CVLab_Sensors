@@ -81,7 +81,7 @@ RGB_PTP_TRIGGER = True   # (default: Settings page)
 # Region of interest, as a fraction of the full 2448x2048 sensor (centered)
 RGB_SENSOR_SIZE = (2448, 2048)
 RGB_ROI_FRACTION = (0.8, 0.6)   # (default: Settings page)
-RGB_PIXEL_FORMAT = "RGB8"
+RGB_PIXEL_FORMAT = "BayerRG8"   # (default: Settings page) raw mosaic: 1/3 of RGB8 on the link and on disk
 
 # The rig is on a moving car: keep exposures short and let the gain compensate.
 RGB_EXPOSURE_LOWER_US = 20.0   # (default: Settings page)
@@ -97,7 +97,10 @@ RGB_PTP_TIMEOUT_S = 60
 # Saving
 RGB_PNG_COMPRESSION = 1     # (default: Settings page) 0-9, low = fast
 RGB_WRITER_THREADS = 6
-RGB_QUEUE_SIZE = 60         # frames waiting to be written; beyond this frames are dropped (and counted)
+# Frames waiting to be written; beyond this frames are dropped (and counted). 300 = 15 s of both cameras
+# at 10 fps, to ride out disk stalls (~0.7 GB in BayerRG8, ~2.2 GB in RGB8)
+RGB_QUEUE_SIZE = 300
+RGB_GRAB_BUFFERS = 30       # pylon buffers per camera: frames received but not yet retrieved (pylon default 10)
 
 # ============================================================================
 # EVENT CAMERAS (Prophesee EVK4, USB)

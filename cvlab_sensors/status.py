@@ -2,7 +2,9 @@
 
 import json
 import os
+import threading
 import time
+from collections import OrderedDict
 
 import cv2
 
@@ -65,3 +67,45 @@ class Throttle:
             self._next = now + self.period_s
             return True
         return False
+
+
+class BackgroundWriter:
+    """Runs small file writes (status, previews, logs) in a thread, so a grab loop never waits on the
+    disk: when the page cache is full of data to write, every write blocks, for seconds at times.
+    A job submitted with a key replaces the pending job with that key (only the latest preview or
+    status is worth writing); jobs without a key all run, in order."""
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._jobs = OrderedDict()
+        self._count = 0
+        self._closing = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def submit(self, fn, key=None):
+        with self._cond:
+            if key is None:
+                key, self._count = ("job", self._count), self._count + 1
+            self._jobs[key] = fn
+            self._cond.notify()
+
+    def close(self):
+        """Run the pending jobs, then stop."""
+        with self._cond:
+            self._closing = True
+            self._cond.notify()
+        self._thread.join()
+
+    def _run(self):
+        while True:
+            with self._cond:
+                while not self._jobs and not self._closing:
+                    self._cond.wait()
+                if not self._jobs:
+                    return
+                _, fn = self._jobs.popitem(last=False)
+            try:
+                fn()
+            except Exception as e:
+                print(f"WARNING: background write failed: {e}")

@@ -18,11 +18,21 @@ from datetime import datetime
 import numpy as np
 
 from cvlab_sensors import config
+from cvlab_sensors.sensors.rgb_image import PIXEL_FORMATS
 from cvlab_sensors.status import read_json, write_json_atomic
 
 FORMAT_VERSION = 1
 PROFILE = "active"
 GIGE_MAX_MB_S = 110   # usable payload of one 1 GbE camera link
+# Recording disk budget. The NVMe (Samsung 980 250 GB) sustained ~110-125 MB/s in a plain dd test
+# on 2026-10-15, but a recording writing ~107 MB/s (thousands of PNGs, two RAW streams, lidar chunks)
+# already stalled after ~18 s: the RGB missed frames and the event recorders fell behind.
+DISK_BUDGET_MB_S = 80
+# EVT3 RAW size per event: ~3.1 B at 20 Mev/s, ~4.0 B at 8 Mev/s (sparser events encode less
+# efficiently). The larger value, so the estimate errs on the safe side.
+EVENT_RAW_BYTES_PER_EVENT = 4.0
+PNG_SIZE_RATIO = {"RGB8": 0.75, "BayerRG8": 0.85}   # PNG / raw frame size at compression 1, measured
+LIDARS_MB_S = 12                                    # Livox + Hesai, measured
 
 GROUPS = {"rgb": "Frame cameras (Basler)", "event": "Event cameras (EVK4)", "livox": "Livox HAP", "hesai": "Hesai XT32"}
 # "apply": sent to the sensor when it opens. "readonly": only shown, as the sensor reports it
@@ -83,6 +93,10 @@ FIELDS = {
         field("white_balance", "White balance", "choice", "unchanged", "Color",
               choices=[["unchanged", "Camera setting (not changed)"], ["Continuous", "Auto"],
                        ["Once", "Once at start"], ["Off", "Off"]]),
+        field("pixel_format", "Pixel format", "choice", config.RGB_PIXEL_FORMAT, "Saving",
+              choices=[["BayerRG8", "Bayer (raw mosaic, 1 byte/px)"], ["RGB8", "RGB (3 bytes/px)"]],
+              help="Bayer: a third of the data on the camera link and on disk, the colors are rebuilt when "
+                   "frames are read (replay, calibration, previews). RGB: demosaiced in the camera"),
         field("png_compression", "PNG compression", "int", config.RGB_PNG_COMPRESSION, "Saving", "", 0, 9, 1,
               help="Recorder, 0–9: higher = smaller files but slower writing (frames are dropped when the writers fall behind)"),
     ],
@@ -289,13 +303,14 @@ def _validate_rgb(v, errors, warnings):
     if longest >= period_us:
         errors[key] = f"{longest:g} µs does not fit in a frame at {v['fps']:g} fps ({period_us:.0f} µs)"
     w, h = rgb_size(v)
-    mb_s = w * h * 3 * v["fps"] / 1e6
+    mb_s = w * h * PIXEL_FORMATS[v["pixel_format"]] * v["fps"] / 1e6
     if mb_s > GIGE_MAX_MB_S:
-        warnings.append(f"{w} × {h} RGB8 at {v['fps']:g} fps is {mb_s:.0f} MB/s per camera, more than a GigE link "
+        warnings.append(f"{w} × {h} {v['pixel_format']} at {v['fps']:g} fps is {mb_s:.0f} MB/s per camera, more than a GigE link "
                         f"carries (~{GIGE_MAX_MB_S} MB/s): frames will be missed. Lower the frame rate or the ROI.")
     if not v["ptp_trigger"]:
         warnings.append("PTP trigger off: left and right expose at different instants (not synchronized).")
     warnings += calibration_mismatches({"rgb": v})
+    warnings += disk_budget_warnings(v, load("event"))
 
 
 def _validate_event(v, errors, warnings):
@@ -312,6 +327,31 @@ def _validate_event(v, errors, warnings):
     live = v["calibration_max_rate_mev"]
     if live is None or live > 30:
         warnings.append("Live tools above ~20 Mev/s: events may arrive too late for the calibration captures.")
+    warnings += disk_budget_warnings(load("rgb"), v)
+
+
+def disk_write_mb_s(rgb, event):
+    """(rgb, events, lidars) MB/s a recording writes, events at the recording cap (None: no cap)."""
+    w, h = rgb_size(rgb)
+    fmt = rgb["pixel_format"]
+    rgb_mb_s = 2 * w * h * PIXEL_FORMATS[fmt] * PNG_SIZE_RATIO[fmt] * rgb["fps"] / 1e6
+    cap = event["record_max_rate_mev"]
+    events_mb_s = None if cap is None else 2 * cap * EVENT_RAW_BYTES_PER_EVENT
+    return rgb_mb_s, events_mb_s, LIDARS_MB_S
+
+
+def disk_budget_warnings(rgb, event):
+    rgb_mb_s, events_mb_s, lidars_mb_s = disk_write_mb_s(rgb, event)
+    if events_mb_s is None:
+        return []   # already warned: no cap
+    total = rgb_mb_s + events_mb_s + lidars_mb_s
+    if total <= DISK_BUDGET_MB_S:
+        return []
+    return [f"A recording can write ~{total:.0f} MB/s (RGB {rgb_mb_s:.0f}, events at the cap {events_mb_s:.0f}, "
+            f"lidars {lidars_mb_s:.0f}), more than the disk keeps up with (~{DISK_BUDGET_MB_S} MB/s): when the "
+            "event cameras sit at the cap the recorders stall after ~10-30 s (missed RGB frames, the end of "
+            "the event recordings lost). Lower the event rate cap or the RGB frame rate"
+            + (", or use Bayer." if rgb["pixel_format"] != "BayerRG8" else ".")]
 
 
 # ============================================================================
