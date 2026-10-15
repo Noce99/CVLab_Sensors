@@ -1,0 +1,26 @@
+# The rig's web app (python -m cvlab_sensors), started at boot and independent of any terminal.
+# Install:
+#   sudo cp system/cvlab-sensors.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cvlab-sensors
+# Output: data/logs/app.log (tail -f it); start / stop errors: journalctl -u cvlab-sensors
+# Stop / restart: sudo systemctl stop|restart cvlab-sensors (the recorders flush their data first)
+
+[Unit]
+Description=CVLab Sensors web app (port 5001)
+Wants=network-online.target
+After=network-online.target ptp4l-cvlab.service
+
+[Service]
+User=ubm
+WorkingDirectory=/home/ubm/CVLab_Sensors
+ExecStart=/home/ubm/CVLab_Sensors/venv_3_12/bin/python -m cvlab_sensors --port 5001
+Environment=PYTHONNOUSERSITE=true PYLON_ROOT=/opt/pylon
+Restart=on-failure
+RestartSec=5
+# SIGINT to every process of the unit, recorders included: each flushes its data, as when stopped
+# from the Record page (also when the server crashes). Killed after TimeoutStopSec.
+KillSignal=SIGINT
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,15 @@ guard). Ctrl+C stops it; a dropped session leaves it running (`pgrep -af cvlab_s
 with `kill -INT <pid>`). The Record page shows when it lost the connection and does not stop the
 recording: reload it when the connection is back.
 
+To start it at boot instead (then do not start it by hand: the port is taken), install the service:
+```
+sudo cp system/cvlab-sensors.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now cvlab-sensors
+sudo systemctl restart cvlab-sensors           # after changing the code
+sudo systemctl stop cvlab-sensors              # the recorders flush their data first
+journalctl -u cvlab-sensors                    # start / stop errors (the rest is in data/logs/app.log)
+```
+
 | Computers | ssh                      |
 | --------  | -------                  |
 | Orin      | `ssh cvlab@192.168.1.49` |
@@ -52,7 +61,7 @@ cvlab_sensors/             Python package: the web app and everything it uses
 ├── tools/                 check_ptp.py, find_hot_pixels.py
 └── templates/, static/    pages
 lidar_recorders/           C++ Livox / Hesai recorders (built in the SDK trees by compile.sh), livox_hap.json
-system/                    ptp4l config + systemd service, EVK4 reset + USB3 check script (sudoers)
+system/                    ptp4l config + systemd services (ptp4l, web app), EVK4 reset + USB3 check script (sudoers)
 data/                      everything the app writes (not in git)
 ├── staging/               sessions being recorded
 ├── sessions/              saved sessions
