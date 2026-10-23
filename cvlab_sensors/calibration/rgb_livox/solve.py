@@ -139,7 +139,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
     K, D, rig_calib = rig_intrinsics()
     log(f"RGB-left intrinsics from {config.RGB_EVENT_CALIBRATION_FILE}: fx {K[0, 0]:.1f} fy {K[1, 1]:.1f} "
         f"cx {K[0, 2]:.1f} cy {K[1, 2]:.1f}")
-    square_mm = session_square_size(folder) if square_size_mm is None else square_size_mm
+    square_mm = session_square_size(folder, config.RGB_LIVOX_SQUARE_SIZE_MM) if square_size_mm is None else square_size_mm
     log(f"Chessboard: {config.PATTERN_SIZE[0]}x{config.PATTERN_SIZE[1]} inner corners, {square_mm:g} mm squares")
     objp = pattern_points(square_size_mm=square_mm)
 

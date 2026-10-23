@@ -62,7 +62,7 @@ class RgbLivoxCapture:
             raise ValueError(f"no session {name!r}")
         image_sizes = {"rgb_left": config.CALIBRATION_IMAGE_SIZE, "livox": config.LIVOX_IMAGE_SIZE}
         # A new session keeps the square size entered for the previous one (same board, usually)
-        square = self.samples.square_size_mm if self.samples is not None else None
+        square = self.samples.square_size_mm if self.samples is not None else config.RGB_LIVOX_SQUARE_SIZE_MM
         self.samples = Samples(os.path.join(CAPTURES_PATH, name), CAMERAS, image_sizes, DEDUP_PX,
                                square_size_mm=square)
 

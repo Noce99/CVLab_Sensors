@@ -58,7 +58,7 @@ def full_frame_intrinsics(K, full_size, size=config.CALIBRATION_IMAGE_SIZE):
     return full
 
 
-def pattern_points(pattern_size=config.PATTERN_SIZE, square_size_mm=config.SQUARE_SIZE_MM):
+def pattern_points(square_size_mm, pattern_size=config.PATTERN_SIZE):
     """3D chessboard corners in mm, in the order of the detected corners."""
     points = np.zeros((np.prod(pattern_size), 3), np.float32)
     points[:, :2] = np.indices(pattern_size).T.reshape(-1, 2)
@@ -235,10 +235,10 @@ def recorded_square_size(folder):
         return None
 
 
-def session_square_size(folder):
-    """Chessboard square size (mm) of a session, config.SQUARE_SIZE_MM for sessions made before it was recorded."""
+def session_square_size(folder, default_mm):
+    """Chessboard square size (mm) of a session, default_mm (the tool's board) for sessions made before it was recorded."""
     recorded = recorded_square_size(folder)
-    return float(config.SQUARE_SIZE_MM) if recorded is None else recorded
+    return float(default_mm) if recorded is None else recorded
 
 
 def record_square_size(folder, value):
@@ -257,10 +257,10 @@ class Samples:
     """Captured boards in <captures>/<session>/<index>/: <cam>_corners.npy / .png and <cam>.png
     for every camera, plus whatever extra files the tool writes (see add)."""
 
-    def __init__(self, folder, cameras, image_sizes, dedup_px, reference="rgb_left", square_size_mm=None):
+    def __init__(self, folder, cameras, image_sizes, dedup_px, square_size_mm, reference="rgb_left"):
         self.folder = folder   # created with the first board
         # Until the session records its own square size (first board, or the solve page)
-        self.default_square_mm = float(config.SQUARE_SIZE_MM) if square_size_mm is None else square_size_mm
+        self.default_square_mm = float(square_size_mm)
         self.cameras = cameras
         self.image_sizes = image_sizes   # {cam: (w, h)}, to normalise the corners for the page
         self.dedup_px = dedup_px

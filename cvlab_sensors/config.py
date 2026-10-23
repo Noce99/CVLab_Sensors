@@ -149,7 +149,9 @@ LIDAR_TO_CAMERA_AXES = {
 # ============================================================================
 
 PATTERN_SIZE = (9, 6)       # inner corners (cols, rows)
-SQUARE_SIZE_MM = 29.0
+# Default chessboard square sizes: each calibration uses its own board
+RGB_EVENT_SQUARE_SIZE_MM = 34.0
+RGB_LIVOX_SQUARE_SIZE_MM = 30.0
 
 # Chessboard search: (gamma, blur kernel, CLAHE clip limit) variants tried in order until one
 # finds the board. gamma < 1 brightens, > 1 darkens; blur 0 = none; CLAHE 0 = none (16x16 tiles).

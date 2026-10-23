@@ -227,7 +227,7 @@ def calibrate(folder, install=True, log=print, progress=lambda fraction, label: 
         raise UserError(f"Not enough boards to calibrate ({n_unique}, need at least 10): move the board around more")
 
     image_size = config.CALIBRATION_IMAGE_SIZE
-    square_mm = session_square_size(folder) if square_size_mm is None else square_size_mm
+    square_mm = session_square_size(folder, config.RGB_EVENT_SQUARE_SIZE_MM) if square_size_mm is None else square_size_mm
     log(f"Chessboard: {config.PATTERN_SIZE[0]}x{config.PATTERN_SIZE[1]} inner corners, {square_mm:g} mm squares")
     objp = pattern_points(square_size_mm=square_mm)
 
