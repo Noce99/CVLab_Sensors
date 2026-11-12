@@ -8,3 +8,7 @@ Cameras_Server/venv/
 __pycache__/
 
 .vscode/
+
+# Local runtime data
+Cameras_Server/
+RGB_Event_Calibration/
